@@ -12,10 +12,10 @@ export default defineConfig({
       includeAssets: ['apple-touch-icon.png', 'pwa-192x192.png'],
       manifest: {
         id: '/',
-        name: 'TMW Reader — TUTTOmercatoWEB',
-        short_name: 'TMW Reader',
+        name: 'News Reader',
+        short_name: 'News Reader',
         description:
-          'Lettore TUTTOmercatoWEB installabile con lettura offline per Serie A, Esteri, Serie B ed Editoriali.',
+          'Lettore rss installabile con lettura offline',
         theme_color: '#FF5722',
         background_color: '#ffffff',
         display: 'standalone',
