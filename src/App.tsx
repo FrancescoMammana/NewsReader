@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react';
-import { Newspaper, SlidersHorizontal } from 'lucide-react';
-import { type FontOption, STORY_TYPE_META } from './types/hn';
+import { Newspaper, Plus, SlidersHorizontal } from 'lucide-react';
+import { type FontOption } from './types/tmw';
 import { useApp } from './context/AppContext';
 import { ItemView } from './components/ItemView';
 import {
+  AddRssFeedModal,
   CountdownReminder,
   ExportQrModal,
   ImportFavsModal,
@@ -45,6 +46,7 @@ export const App: React.FC = () => {
     isDarkActive,
     activeTab,
     setActiveTab,
+    getFeedLabel,
     selectedItemArgs,
     splitViewExpanded,
     setSplitViewExpanded,
@@ -53,6 +55,7 @@ export const App: React.FC = () => {
   const isDesktop = useIsDesktop();
   const [exportQrOpen, setExportQrOpen] = useState(false);
   const [importModalOpen, setImportModalOpen] = useState(false);
+  const [addRssOpen, setAddRssOpen] = useState(false);
 
   useEffect(() => {
     document.documentElement.style.fontSize = `${16 * preferences.textScaleFactor}px`;
@@ -60,7 +63,7 @@ export const App: React.FC = () => {
 
   useEffect(() => {
     if (activeTab !== 'profile' && !preferences.tabOrder.includes(activeTab)) {
-      setActiveTab(preferences.tabOrder[0] || 'latest');
+      setActiveTab(preferences.tabOrder[0] || 'profile');
     }
   }, [activeTab, preferences.tabOrder, setActiveTab]);
 
@@ -95,12 +98,44 @@ export const App: React.FC = () => {
               : 'w-full'
           }`}
         >
-          {/* Top Navigation Tab Bar */}
+          {/* Top Navigation Bar with Wrapping Feed Pills */}
           <header className="shrink-0 border-b border-neutral-200 dark:border-neutral-800 bg-white/95 dark:bg-neutral-950/95 backdrop-blur">
-            <div className="flex items-center justify-between px-2 h-11 gap-1">
+            <div className="px-3 py-2 flex flex-col gap-2">
+              <div className="flex items-center justify-between gap-2">
+                <div className="text-xs font-semibold uppercase tracking-wider text-neutral-400">
+                  Feed &amp; Sezioni
+                </div>
+                <div className="flex items-center gap-1 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setAddRssOpen(true)}
+                    title="Aggiungi feed RSS / Atom"
+                    className="px-2 py-1 rounded-md text-xs font-medium bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 flex items-center gap-1 text-neutral-700 dark:text-neutral-200"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Aggiungi RSS</span>
+                  </button>
+                  <PWAInstallButton compact />
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('profile')}
+                    title="Search, Favorites & Settings"
+                    className={`px-2.5 py-1 rounded-md flex items-center gap-1 text-xs font-semibold transition-colors ${
+                      activeTab === 'profile'
+                        ? 'bg-neutral-900 text-white dark:bg-white dark:text-neutral-900'
+                        : 'bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 text-neutral-700 dark:text-neutral-200'
+                    }`}
+                    style={activeTab === 'profile' ? { backgroundColor: accentHex, color: '#ffffff' } : undefined}
+                  >
+                    <SlidersHorizontal className="w-3.5 h-3.5" />
+                    <span>Menu</span>
+                  </button>
+                </div>
+              </div>
+
               <nav
-                className="flex items-center gap-0.5 overflow-x-auto no-scrollbar"
-                aria-label="TuttoMercatoWeb feeds"
+                className="flex flex-wrap items-center gap-1.5 pt-0.5"
+                aria-label="Feed e RSS"
               >
                 {preferences.tabOrder.map((tab) => {
                   const active = activeTab === tab;
@@ -109,42 +144,18 @@ export const App: React.FC = () => {
                       key={tab}
                       type="button"
                       onClick={() => setActiveTab(tab)}
-                      className={`relative px-2 py-2 text-[11px] font-semibold tracking-wide whitespace-nowrap shrink-0 transition-colors ${
+                      className={`px-2.5 py-1 text-xs font-medium rounded-lg border transition-all cursor-pointer ${
                         active
-                          ? 'text-neutral-900 dark:text-white'
-                          : 'text-neutral-500 dark:text-neutral-400 hover:text-neutral-800 dark:hover:text-neutral-200'
+                          ? 'border-transparent text-white shadow-xs'
+                          : 'border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-900 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800'
                       }`}
-                      style={active ? { color: accentHex } : undefined}
+                      style={active ? { backgroundColor: accentHex, borderColor: accentHex } : undefined}
                     >
-                      {STORY_TYPE_META[tab].label}
-                      {active && (
-                        <span
-                          className="absolute bottom-0 left-1.5 right-1.5 h-0.5 rounded-full"
-                          style={{ backgroundColor: accentHex }}
-                        />
-                      )}
+                      {getFeedLabel(tab)}
                     </button>
                   );
                 })}
               </nav>
-
-              <div className="flex items-center gap-1 shrink-0">
-                <PWAInstallButton compact />
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('profile')}
-                  title="Search, Favorites & Settings"
-                  className={`px-2 py-1.5 rounded-lg flex items-center gap-1 text-xs font-semibold whitespace-nowrap shrink-0 transition-colors ${
-                    activeTab === 'profile'
-                      ? 'bg-neutral-100 dark:bg-neutral-800'
-                      : 'text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800'
-                  }`}
-                  style={activeTab === 'profile' ? { color: accentHex } : undefined}
-                >
-                  <SlidersHorizontal className="w-4 h-4" />
-                  <span className="hidden sm:inline">Menu</span>
-                </button>
-              </div>
             </div>
           </header>
 
@@ -155,6 +166,34 @@ export const App: React.FC = () => {
                 onOpenExportQr={() => setExportQrOpen(true)}
                 onOpenImportModal={() => setImportModalOpen(true)}
               />
+            ) : preferences.tabOrder.length === 0 ? (
+              <div className="flex-1 flex flex-col items-center justify-center p-6 text-center gap-3">
+                <p className="text-sm font-medium text-neutral-700 dark:text-neutral-200">
+                  Nessun feed configurato
+                </p>
+                <p className="text-xs text-neutral-500 dark:text-neutral-400 max-w-xs">
+                  Aggiungi un feed RSS / Atom personalizzato o ripristina i feed predefiniti dalle
+                  Impostazioni.
+                </p>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setAddRssOpen(true)}
+                    className="px-3 py-1.5 rounded-lg text-white text-xs font-medium flex items-center gap-1"
+                    style={{ backgroundColor: accentHex }}
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Aggiungi feed RSS</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('profile')}
+                    className="px-3 py-1.5 rounded-lg border border-neutral-200 dark:border-neutral-800 text-xs font-medium"
+                  >
+                    Apri Menu
+                  </button>
+                </div>
+              </div>
             ) : (
               <StoriesFeed storyType={activeTab} />
             )}
@@ -175,11 +214,11 @@ export const App: React.FC = () => {
                 <Newspaper className="w-6 h-6 text-neutral-400" />
               </div>
               <p className="text-sm font-medium text-neutral-600 dark:text-neutral-300">
-                Seleziona una notizia da TUTTOmercatoWEB per leggerla.
+                Seleziona un articolo per leggerlo.
               </p>
               <p className="text-xs text-neutral-400 dark:text-neutral-500 mt-1 max-w-xs">
-                Sfoglia Ultime, Serie A, Estero, Serie B ed Editoriali oppure usa Menu per ricerca,
-                preferiti e impostazioni.
+                Sfoglia i feed configurati, aggiungi nuove sorgenti RSS con + oppure usa Menu per
+                ricerca, preferiti e impostazioni.
               </p>
             </div>
           )}
@@ -187,6 +226,7 @@ export const App: React.FC = () => {
       )}
 
       {/* Global Modals, Offline Status & Toasts */}
+      <AddRssFeedModal open={addRssOpen} onClose={() => setAddRssOpen(false)} />
       <ExportQrModal open={exportQrOpen} onClose={() => setExportQrOpen(false)} />
       <ImportFavsModal open={importModalOpen} onClose={() => setImportModalOpen(false)} />
       <OfflineIndicator />

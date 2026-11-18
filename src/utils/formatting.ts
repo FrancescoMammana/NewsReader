@@ -1,4 +1,4 @@
-import type { DateDisplayFormat, Item, Story } from '../types/hn';
+import type { DateDisplayFormat, Item, Story } from '../types/tmw';
 
 export function normalizeEpochMs(ts: number): number {
   if (!ts) return 0;
@@ -95,24 +95,7 @@ export function decodeHtmlEntities(input: string): string {
     .replace(/&#x2F;/g, '/');
 }
 
-export function parseHnHtml(raw: string): string {
-  if (!raw) return '';
-  let text = decodeHtmlEntities(raw);
-  text = text.replace(/<pre><code>([\s\S]*?)<\/code><\/pre>/gi, (_m, code: string) => {
-    return `<pre><code>${code.replace(/\n/g, '[break]')}</code></pre>`;
-  });
-  text = text.replace(/\n/g, '');
-  text = text.replace(/<p>([\s\S]*?)<p>/gi, (_m, p: string) => `\n${p.replace(/\n/g, ' ')}\n`);
-  text = text.replace(/<i>([\s\S]*?)<\/i>/gi, '*$1*');
-  text = text.replace(/<a\s+href="([^"]*)"[^>]*>[\s\S]*?<\/a>/gi, '$1');
-  text = text.replace(/\n/g, '\n\n');
-  text = text.replace(/<p>/gi, '\n\n');
-  text = text.replace(/<\/p>/gi, '');
-  text = text.replace(/\[break\]/g, '\n');
-  return text.trim();
-}
-
-export function extractHnItemId(url: string): number | null {
+export function extractTmwItemId(url: string): number | null {
   const match = url.match(/tuttomercatoweb\.com\/.*-(\d{5,9})(?:[/?#]|$)/);
   if (match && match[1]) {
     const id = Number(match[1]);

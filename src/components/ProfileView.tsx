@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Trash2 } from 'lucide-react';
-import { type ProfileSubPage, type Story } from '../types/hn';
+import { type ProfileSubPage, type Story } from '../types/tmw';
 import { useApp } from '../context/AppContext';
 import { SearchView } from './SearchView';
 import { SettingsView } from './SettingsView';
@@ -47,7 +47,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                 active
                   ? {
                       borderColor: accentHex,
-                      backgroundColor: 'var(--hacki-accent-soft)',
+                      backgroundColor: 'var(--tmw-accent-soft)',
                       color: accentHex,
                     }
                   : undefined

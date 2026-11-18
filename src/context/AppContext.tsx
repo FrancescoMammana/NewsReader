@@ -9,19 +9,20 @@ import React, {
 } from 'react';
 import {
   ACCENT_COLORS,
-  ALL_STORY_TYPES,
+  type ConfiguredFeed,
+  DEFAULT_CONFIGURED_FEEDS,
   type Item,
   type ItemScreenArgs,
   type Preferences,
   type Story,
   type StoryType,
   type ToastMessage,
-} from '../types/hn';
-import { fetchTmwArticle, fetchTmwFeed } from '../services/hnApi';
+} from '../types/tmw';
+import { fetchCustomRssFeed, fetchTmwArticle, fetchTmwFeed } from '../services/tmwApi';
 import { storage } from '../services/storage';
 import { shouldHideByKeywords } from '../utils/formatting';
 
-interface FeedBucket {
+export interface FeedBucket {
   stories: Story[];
   nextStart: number | null;
   loading: boolean;
@@ -29,18 +30,20 @@ interface FeedBucket {
   error: string | null;
 }
 
-type FeedMap = Record<StoryType, FeedBucket>;
+export const EMPTY_FEED_BUCKET: FeedBucket = {
+  stories: [],
+  nextStart: 0,
+  loading: false,
+  loadingMore: false,
+  error: null,
+};
 
-function createInitialFeeds(): FeedMap {
-  const map = {} as FeedMap;
-  for (const t of ALL_STORY_TYPES) {
-    map[t] = {
-      stories: [],
-      nextStart: 0,
-      loading: false,
-      loadingMore: false,
-      error: null,
-    };
+type FeedMap = Record<string, FeedBucket>;
+
+function createInitialFeeds(tabIds: StoryType[]): FeedMap {
+  const map: FeedMap = {};
+  for (const t of tabIds) {
+    map[t] = { ...EMPTY_FEED_BUCKET };
   }
   return map;
 }
@@ -53,6 +56,12 @@ interface AppContextValue {
 
   activeTab: StoryType | 'profile';
   setActiveTab: (tab: StoryType | 'profile') => void;
+
+  // Configured feeds (TMW + RSS/Atom)
+  addCustomFeed: (label: string, url: string) => Promise<boolean>;
+  removeFeed: (id: string) => void;
+  restoreDefaultTmwFeeds: () => void;
+  getFeedLabel: (id: StoryType) => string;
 
   // Stories & Offline
   feeds: FeedMap;
@@ -120,7 +129,7 @@ const AppContext = createContext<AppContextValue | null>(null);
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [preferences, setPreferences] = useState<Preferences>(() => storage.getPreferences());
   const [activeTab, setActiveTab] = useState<StoryType | 'profile'>(
-    () => preferences.tabOrder[0] || 'latest',
+    () => preferences.tabOrder[0] || 'profile',
   );
 
   // System dark media query
@@ -149,8 +158,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     } else {
       root.classList.remove('dark');
     }
-    root.style.setProperty('--hacki-accent', accentHex);
-    root.style.setProperty('--hacki-accent-soft', `${accentHex}24`);
+    root.style.setProperty('--tmw-accent', accentHex);
+    root.style.setProperty('--tmw-accent-soft', `${accentHex}24`);
   }, [isDarkActive, accentHex]);
 
   const updatePreference = useCallback(<K extends keyof Preferences>(key: K, value: Preferences[K]) => {
@@ -355,9 +364,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // Offline mode & Feeds
   const [isOfflineReading, setIsOfflineReading] = useState(false);
   const [offlineProgress, setOfflineProgress] = useState({ active: false, current: 0, total: 0 });
-  const [feeds, setFeeds] = useState<FeedMap>(() => createInitialFeeds());
+  const [feeds, setFeeds] = useState<FeedMap>(() =>
+    createInitialFeeds(preferences.configuredFeeds.map((f) => f.id)),
+  );
   const feedsRef = useRef(feeds);
   feedsRef.current = feeds;
+  const configuredFeedsRef = useRef(preferences.configuredFeeds);
+  configuredFeedsRef.current = preferences.configuredFeeds;
+  const tabOrderRef = useRef(preferences.tabOrder);
+  tabOrderRef.current = preferences.tabOrder;
+
+  const getFeedLabel = useCallback(
+    (id: StoryType): string => {
+      const found = preferences.configuredFeeds.find((f) => f.id === id);
+      return found ? found.label.toUpperCase() : id;
+    },
+    [preferences.configuredFeeds],
+  );
 
   const applyKeywordFilter = useCallback(
     (stories: Story[]) =>
@@ -366,6 +389,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         hidden: shouldHideByKeywords(s, filterKeywords),
       })),
     [filterKeywords],
+  );
+
+  const fetchFeedByKey = useCallback(
+    async (
+      type: StoryType,
+      start = 0,
+    ): Promise<{ stories: Story[]; nextStart: number | null; feedTitle?: string }> => {
+      const feed = configuredFeedsRef.current.find((f) => f.id === type);
+      if (!feed) {
+        throw new Error('Feed non trovato');
+      }
+      if (feed.kind === 'tmw') {
+        return fetchTmwFeed(feed.source, start);
+      }
+      return fetchCustomRssFeed(feed.source, feed.label);
+    },
+    [],
   );
 
   const refreshFeed = useCallback(
@@ -393,12 +433,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       setFeeds((prev) => ({
         ...prev,
-        [type]: { ...prev[type], loading: true, error: null },
+        [type]: { ...(prev[type] ?? EMPTY_FEED_BUCKET), loading: true, error: null },
       }));
 
       try {
-        const { stories, nextStart } = await fetchTmwFeed(type, 0);
-        // Auto-cache latest stories per tab for seamless offline reading
+        const { stories, nextStart } = await fetchFeedByKey(type, 0);
         const existingOffline = storage.getOfflineStories();
         storage.saveOfflineStories({
           ...existingOffline,
@@ -415,7 +454,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             error: null,
           },
         }));
-      } catch {
+      } catch (err) {
         const cached = storage.getOfflineStories()[type] ?? [];
         if (cached.length > 0) {
           setFeeds((prev) => ({
@@ -430,25 +469,139 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           }));
           showToast('Connessione assente: mostrati gli articoli in cache');
         } else {
+          const msg =
+            err instanceof Error && err.message
+              ? err.message
+              : 'Impossibile caricare il feed. Verifica la connessione o attiva la Modalità Offline.';
           setFeeds((prev) => ({
             ...prev,
             [type]: {
-              ...prev[type],
+              ...(prev[type] ?? EMPTY_FEED_BUCKET),
               loading: false,
-              error:
-                'Impossibile caricare le notizie di TuttoMercatoWeb. Verifica la connessione o attiva la Modalità Offline.',
+              error: msg,
             },
           }));
         }
       }
     },
-    [isOfflineReading, applyKeywordFilter, showToast],
+    [isOfflineReading, fetchFeedByKey, applyKeywordFilter, showToast],
   );
+
+  const addCustomFeed = useCallback(
+    async (label: string, rawUrl: string): Promise<boolean> => {
+      const cleanUrl = rawUrl.trim();
+      if (!/^https?:\/\//i.test(cleanUrl)) {
+        showToast('Inserisci un URL http:// o https:// valido', { variant: 'error' });
+        return false;
+      }
+      try {
+        const { stories, feedTitle } = await fetchCustomRssFeed(cleanUrl, label.trim() || undefined);
+        const finalLabel = label.trim() || feedTitle || new URL(cleanUrl).hostname.replace(/^www\./, '');
+        const newFeed: ConfiguredFeed = {
+          id: `rss_${Date.now()}`,
+          label: finalLabel,
+          kind: 'rss',
+          source: cleanUrl,
+          url: cleanUrl,
+        };
+
+        setPreferences((prev) => {
+          const next: Preferences = {
+            ...prev,
+            configuredFeeds: [...prev.configuredFeeds, newFeed],
+            tabOrder: [...prev.tabOrder, newFeed.id],
+          };
+          storage.savePreferences(next);
+          return next;
+        });
+
+        const existingOffline = storage.getOfflineStories();
+        storage.saveOfflineStories({
+          ...existingOffline,
+          [newFeed.id]: stories.slice(0, 20),
+        });
+
+        setFeeds((prev) => ({
+          ...prev,
+          [newFeed.id]: {
+            stories: applyKeywordFilter(stories),
+            nextStart: null,
+            loading: false,
+            loadingMore: false,
+            error: null,
+          },
+        }));
+
+        setActiveTab(newFeed.id);
+        showToast(`Feed "${finalLabel}" aggiunto (${stories.length} articoli)`, {
+          variant: 'success',
+        });
+        return true;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Feed RSS non raggiungibile o non valido';
+        showToast(msg, { variant: 'error' });
+        return false;
+      }
+    },
+    [applyKeywordFilter, showToast],
+  );
+
+  const removeFeed = useCallback(
+    (id: string) => {
+      const nextOrder = tabOrderRef.current.filter((t) => t !== id);
+      setPreferences((prev) => {
+        const next: Preferences = {
+          ...prev,
+          configuredFeeds: prev.configuredFeeds.filter((f) => f.id !== id),
+          tabOrder: prev.tabOrder.filter((t) => t !== id),
+        };
+        storage.savePreferences(next);
+        return next;
+      });
+      setFeeds((prev) => {
+        const copy = { ...prev };
+        delete copy[id];
+        return copy;
+      });
+      setActiveTab((cur) => (cur === id ? nextOrder[0] ?? 'profile' : cur));
+      showToast('Feed rimosso');
+    },
+    [showToast],
+  );
+
+  const restoreDefaultTmwFeeds = useCallback(() => {
+    const existingIds = new Set(configuredFeedsRef.current.map((f) => f.id));
+    const missing = DEFAULT_CONFIGURED_FEEDS.filter((f) => !existingIds.has(f.id));
+    if (missing.length === 0) return;
+
+    setPreferences((prev) => {
+      const prevIds = new Set(prev.configuredFeeds.map((f) => f.id));
+      const toAdd = DEFAULT_CONFIGURED_FEEDS.filter((f) => !prevIds.has(f.id));
+      if (toAdd.length === 0) return prev;
+      const next: Preferences = {
+        ...prev,
+        configuredFeeds: [...prev.configuredFeeds, ...toAdd],
+        tabOrder: [...prev.tabOrder, ...toAdd.map((f) => f.id)],
+      };
+      storage.savePreferences(next);
+      return next;
+    });
+
+    setFeeds((prev) => {
+      const copy = { ...prev };
+      for (const f of missing) {
+        if (!copy[f.id]) copy[f.id] = { ...EMPTY_FEED_BUCKET };
+      }
+      return copy;
+    });
+
+    showToast('Feed TuttoMercatoWEB ripristinati', { variant: 'success' });
+  }, [showToast]);
 
   const ensureFeedLoaded = useCallback(
     (type: StoryType) => {
       const bucket = feedsRef.current[type];
-      if (bucket.stories.length === 0 && !bucket.loading) {
+      if (!bucket || (bucket.stories.length === 0 && !bucket.loading && !bucket.error)) {
         void refreshFeed(type);
       }
     },
@@ -457,19 +610,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const loadMoreFeed = useCallback(
     async (type: StoryType) => {
-      if (isOfflineReading) return;
+      const feed = configuredFeedsRef.current.find((f) => f.id === type);
+      if (isOfflineReading || !feed || feed.kind !== 'tmw') return;
       const bucket = feedsRef.current[type];
-      if (bucket.loading || bucket.loadingMore || bucket.nextStart === null) return;
+      if (!bucket || bucket.loading || bucket.loadingMore || bucket.nextStart === null) return;
 
       setFeeds((prev) => ({
         ...prev,
-        [type]: { ...prev[type], loadingMore: true },
+        [type]: { ...(prev[type] ?? EMPTY_FEED_BUCKET), loadingMore: true },
       }));
 
       try {
-        const { stories: more, nextStart } = await fetchTmwFeed(type, bucket.nextStart);
+        const { stories: more, nextStart } = await fetchTmwFeed(feed.source, bucket.nextStart);
         setFeeds((prev) => {
-          const cur = prev[type];
+          const cur = prev[type] ?? EMPTY_FEED_BUCKET;
           const existingIds = new Set(cur.stories.map((s) => s.id));
           const deduped = more.filter((s) => !existingIds.has(s.id));
           return {
@@ -485,7 +639,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       } catch {
         setFeeds((prev) => ({
           ...prev,
-          [type]: { ...prev[type], loadingMore: false },
+          [type]: { ...(prev[type] ?? EMPTY_FEED_BUCKET), loadingMore: false },
         }));
       }
     },
@@ -494,11 +648,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   useEffect(() => {
     setFeeds((prev) => {
-      const next = { ...prev };
-      for (const t of ALL_STORY_TYPES) {
+      const next: FeedMap = {};
+      for (const [t, bucket] of Object.entries(prev)) {
         next[t] = {
-          ...prev[t],
-          stories: prev[t].stories.map((s) => ({
+          ...bucket,
+          stories: bucket.stories.map((s) => ({
             ...s,
             hidden: shouldHideByKeywords(s, filterKeywords),
           })),
@@ -511,11 +665,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const toggleOfflineMode = useCallback(
     (enabled: boolean) => {
       setIsOfflineReading(enabled);
+      const tabIds = configuredFeedsRef.current.map((f) => f.id);
       if (enabled) {
         const offlineMap = storage.getOfflineStories();
-        setFeeds((prev) => {
-          const next = { ...prev };
-          for (const t of ALL_STORY_TYPES) {
+        setFeeds(() => {
+          const next: FeedMap = {};
+          for (const t of tabIds) {
             const list = offlineMap[t] ?? [];
             next[t] = {
               stories: applyKeywordFilter(list),
@@ -529,7 +684,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         });
         showToast('Offline Reading Mode enabled');
       } else {
-        setFeeds(createInitialFeeds());
+        setFeeds(createInitialFeeds(tabIds));
         showToast('Switched back to Online Mode');
       }
     },
@@ -544,12 +699,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     let done = 0;
     setOfflineProgress({ active: true, current: 0, total: totalStories });
 
-    const offlineStoriesMap: Record<string, Story[]> = {};
+    const offlineStoriesMap: Record<string, Story[]> = storage.getOfflineStories();
     const offlineArticlesMap: Record<string, Story> = storage.getOfflineArticles();
 
     try {
       for (const t of types) {
-        const res = await fetchTmwFeed(t, 0).catch(() => ({ stories: [], nextStart: null }));
+        const res = await fetchFeedByKey(t, 0).catch(() => ({ stories: [] as Story[], nextStart: null }));
         const batch = res.stories.slice(0, 20);
         offlineStoriesMap[t] = batch;
         for (const story of batch.slice(0, perTab)) {
@@ -558,20 +713,26 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           if (story.url) {
             const full = await fetchTmwArticle(story.url).catch(() => null);
             if (full) {
-              offlineArticlesMap[String(story.id)] = full;
+              offlineArticlesMap[String(story.id)] = {
+                ...story,
+                ...full,
+                text: full.text && full.text.length > (story.text || '').length ? full.text : story.text || full.text,
+              };
+            } else if (story.text) {
+              offlineArticlesMap[String(story.id)] = story;
             }
           }
         }
       }
       storage.saveOfflineStories(offlineStoriesMap);
       storage.saveOfflineArticles(offlineArticlesMap);
-      showToast('TuttoMercatoWeb articles downloaded for offline reading.', { variant: 'success' });
+      showToast('Articoli salvati per la lettura offline.', { variant: 'success' });
     } catch {
       showToast('Offline download encountered an error.', { variant: 'error' });
     } finally {
       setOfflineProgress({ active: false, current: 0, total: 0 });
     }
-  }, [offlineProgress.active, preferences.tabOrder, showToast]);
+  }, [offlineProgress.active, preferences.tabOrder, fetchFeedByKey, showToast]);
 
   // Split View & Item Navigation
   const [itemHistoryStack, setItemHistoryStack] = useState<ItemScreenArgs[]>([]);
@@ -619,6 +780,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     isDarkActive,
     activeTab,
     setActiveTab,
+    addCustomFeed,
+    removeFeed,
+    restoreDefaultTmwFeeds,
+    getFeedLabel,
     feeds,
     ensureFeedLoaded,
     refreshFeed,

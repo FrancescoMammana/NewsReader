@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Globe } from 'lucide-react';
-import type { Story, WebPreviewInfo } from '../types/hn';
-import { fetchLinkPreview } from '../services/hnApi';
+import type { Story, WebPreviewInfo } from '../types/tmw';
+import { fetchLinkPreview } from '../services/tmwApi';
 import { storage } from '../services/storage';
 import { getFaviconUrl } from '../utils/formatting';
 
@@ -90,12 +90,12 @@ export const LinkPreview: React.FC<LinkPreviewProps> = ({
       <div className="mt-2 flex gap-3 items-start animate-pulse">
         <div
           className="w-16 h-16 shrink-0 rounded"
-          style={{ backgroundColor: 'var(--hacki-accent-soft)' }}
+          style={{ backgroundColor: 'var(--tmw-accent-soft)' }}
         />
         <div className="flex-1 space-y-2 py-1">
-          <div className="h-2.5 rounded w-full" style={{ backgroundColor: 'var(--hacki-accent-soft)' }} />
-          <div className="h-2.5 rounded w-5/6" style={{ backgroundColor: 'var(--hacki-accent-soft)' }} />
-          <div className="h-2.5 rounded w-2/3" style={{ backgroundColor: 'var(--hacki-accent-soft)' }} />
+          <div className="h-2.5 rounded w-full" style={{ backgroundColor: 'var(--tmw-accent-soft)' }} />
+          <div className="h-2.5 rounded w-5/6" style={{ backgroundColor: 'var(--tmw-accent-soft)' }} />
+          <div className="h-2.5 rounded w-2/3" style={{ backgroundColor: 'var(--tmw-accent-soft)' }} />
         </div>
       </div>
     );

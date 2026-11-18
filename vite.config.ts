@@ -9,11 +9,11 @@ export default defineConfig({
     tailwindcss(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['apple-touch-icon.png', 'assets/images/hacki_icon.png'],
+      includeAssets: ['apple-touch-icon.png', 'pwa-192x192.png'],
       manifest: {
         id: '/',
-        name: 'Hacki — TUTTOmercatoWEB',
-        short_name: 'Hacki TMW',
+        name: 'TMW Reader — TUTTOmercatoWEB',
+        short_name: 'TMW Reader',
         description:
           'Lettore TUTTOmercatoWEB installabile con lettura offline per Serie A, Esteri, Serie B ed Editoriali.',
         theme_color: '#FF5722',
@@ -47,7 +47,8 @@ export default defineConfig({
         navigateFallbackDenylist: [/^\/api\//],
         runtimeCaching: [
           {
-            urlPattern: ({ url }) => url.pathname.startsWith('/api/tmw/'),
+            urlPattern: ({ url }) =>
+              url.pathname.startsWith('/api/tmw/') || url.pathname.startsWith('/api/rss/'),
             handler: 'NetworkFirst',
             options: {
               cacheName: 'tmw-api-cache',
@@ -62,12 +63,12 @@ export default defineConfig({
             },
           },
           {
-            urlPattern: /^https:\/\/.*(?:tcccdn\.com|tuttomercatoweb\.com)\/.*\.(?:png|jpg|jpeg|webp|gif)(?:\?.*)?$/i,
+            urlPattern: ({ request }) => request.destination === 'image',
             handler: 'StaleWhileRevalidate',
             options: {
               cacheName: 'tmw-images-cache',
               expiration: {
-                maxEntries: 200,
+                maxEntries: 250,
                 maxAgeSeconds: 60 * 60 * 24 * 14,
               },
               cacheableResponse: {

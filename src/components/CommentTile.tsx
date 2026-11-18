@@ -6,7 +6,7 @@ import {
   Reply,
   Trash2,
 } from 'lucide-react';
-import type { Comment } from '../types/hn';
+import type { Comment } from '../types/tmw';
 import { useApp } from '../context/AppContext';
 import { formatTimestamp } from '../utils/formatting';
 import { ItemText } from './ItemText';

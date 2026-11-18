@@ -92,8 +92,8 @@
 }
 
 :root {
-  --hacki-accent: #ff5722;
-  --hacki-accent-soft: rgba(255, 87, 34, 0.14);
+  --tmw-accent: #ff5722;
+  --tmw-accent-soft: rgba(255, 87, 34, 0.14);
 }
 
 html,

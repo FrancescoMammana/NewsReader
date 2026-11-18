@@ -1,6 +1,6 @@
-# Hacki × TUTTOmercatoWEB
+# TMW Reader — TUTTOmercatoWEB
 
-A split-view news reader for [**tuttomercatoweb.com**](https://www.tuttomercatoweb.com/), built with **React**, **TypeScript**, and **Tailwind CSS**, backed by an **Express** proxy server.
+A split-view PWA news reader for [**tuttomercatoweb.com**](https://www.tuttomercatoweb.com/), built with **React**, **TypeScript**, and **Tailwind CSS**, backed by an **Express** proxy server.
 
 ## Features
 

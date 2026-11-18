@@ -8,7 +8,7 @@ import {
   PinOff,
   Share2,
 } from 'lucide-react';
-import type { Story } from '../types/hn';
+import type { Story } from '../types/tmw';
 import { useApp } from '../context/AppContext';
 import { getFaviconUrl, getReadableUrl, getStoryMetadata } from '../utils/formatting';
 import { LinkPreview } from './LinkPreview';
@@ -102,7 +102,7 @@ export const StoryTile: React.FC<StoryTileProps> = ({
       }`}
       style={
         isPinnedTile
-          ? { backgroundColor: 'var(--hacki-accent-soft)' }
+          ? { backgroundColor: 'var(--tmw-accent-soft)' }
           : undefined
       }
     >

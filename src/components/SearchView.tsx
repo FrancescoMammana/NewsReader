@@ -5,8 +5,8 @@ import {
   type SearchParams,
   type Story,
   type TypeTagFilter,
-} from '../types/hn';
-import { searchTmw } from '../services/hnApi';
+} from '../types/tmw';
+import { searchTmw } from '../services/tmwApi';
 import { useApp } from '../context/AppContext';
 import { StoryTile } from './StoryTile';
 
@@ -140,7 +140,7 @@ export const SearchView: React.FC = () => {
             className="px-2.5 py-1 rounded border whitespace-nowrap shrink-0 flex items-center gap-1 border-neutral-200 dark:border-neutral-700"
             style={
               params.startTime !== null
-                ? { borderColor: accentHex, color: accentHex, backgroundColor: 'var(--hacki-accent-soft)' }
+                ? { borderColor: accentHex, color: accentHex, backgroundColor: 'var(--tmw-accent-soft)' }
                 : undefined
             }
           >
@@ -169,7 +169,7 @@ export const SearchView: React.FC = () => {
             className="px-2.5 py-1 rounded border whitespace-nowrap shrink-0 border-neutral-200 dark:border-neutral-700"
             style={
               params.sorted
-                ? { borderColor: accentHex, color: accentHex, backgroundColor: 'var(--hacki-accent-soft)' }
+                ? { borderColor: accentHex, color: accentHex, backgroundColor: 'var(--tmw-accent-soft)' }
                 : undefined
             }
           >
@@ -182,7 +182,7 @@ export const SearchView: React.FC = () => {
             className="px-2.5 py-1 rounded border whitespace-nowrap shrink-0 border-neutral-200 dark:border-neutral-700"
             style={
               params.exactMatch
-                ? { borderColor: accentHex, color: accentHex, backgroundColor: 'var(--hacki-accent-soft)' }
+                ? { borderColor: accentHex, color: accentHex, backgroundColor: 'var(--tmw-accent-soft)' }
                 : undefined
             }
           >
@@ -215,7 +215,7 @@ export const SearchView: React.FC = () => {
                 className="px-2.5 py-1 rounded border whitespace-nowrap shrink-0 border-neutral-200 dark:border-neutral-700"
                 style={
                   selected
-                    ? { borderColor: accentHex, color: accentHex, backgroundColor: 'var(--hacki-accent-soft)' }
+                    ? { borderColor: accentHex, color: accentHex, backgroundColor: 'var(--tmw-accent-soft)' }
                     : undefined
                 }
               >

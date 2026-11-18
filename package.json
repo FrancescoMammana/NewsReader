@@ -1,6 +1,6 @@
 {
-  "name": "hacki",
-  "version": "2.8.1",
+  "name": "tmw-reader",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
   "scripts": {

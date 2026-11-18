@@ -1,6 +1,17 @@
-export type StoryType = 'latest' | 'serieA' | 'estero' | 'serieB' | 'editoriale';
+export type BuiltinStoryType = 'latest' | 'serieA' | 'estero' | 'serieB' | 'editoriale';
+export type StoryType = BuiltinStoryType | string;
 
-export const STORY_TYPE_META: Record<StoryType, { path: string; label: string }> = {
+export type FeedKind = 'tmw' | 'rss';
+
+export interface ConfiguredFeed {
+  id: string;
+  label: string;
+  kind: FeedKind;
+  source: string;
+  url: string;
+}
+
+export const STORY_TYPE_META: Record<BuiltinStoryType, { path: string; label: string }> = {
   latest: { path: 'ricerca', label: 'ULTIME' },
   serieA: { path: 'serie-a', label: 'SERIE A' },
   estero: { path: 'calcio-estero', label: 'ESTERO' },
@@ -8,7 +19,61 @@ export const STORY_TYPE_META: Record<StoryType, { path: string; label: string }>
   editoriale: { path: 'editoriale', label: 'EDITORIALI' },
 };
 
-export const ALL_STORY_TYPES: StoryType[] = ['latest', 'serieA', 'estero', 'serieB', 'editoriale'];
+export const ALL_STORY_TYPES: BuiltinStoryType[] = [
+  'latest',
+  'serieA',
+  'estero',
+  'serieB',
+  'editoriale',
+];
+
+export const DEFAULT_CONFIGURED_FEEDS: ConfiguredFeed[] = [
+  {
+    id: 'latest',
+    label: 'Ultime TMW',
+    kind: 'tmw',
+    source: 'latest',
+    url: 'https://www.tuttomercatoweb.com/ricerca/',
+  },
+  {
+    id: 'serieA',
+    label: 'Serie A',
+    kind: 'tmw',
+    source: 'serieA',
+    url: 'https://www.tuttomercatoweb.com/serie-a/',
+  },
+  {
+    id: 'estero',
+    label: 'Estero',
+    kind: 'tmw',
+    source: 'estero',
+    url: 'https://www.tuttomercatoweb.com/calcio-estero/',
+  },
+  {
+    id: 'serieB',
+    label: 'Serie B',
+    kind: 'tmw',
+    source: 'serieB',
+    url: 'https://www.tuttomercatoweb.com/serie-b/',
+  },
+  {
+    id: 'editoriale',
+    label: 'Editoriali',
+    kind: 'tmw',
+    source: 'editoriale',
+    url: 'https://www.tuttomercatoweb.com/editoriale/',
+  },
+];
+
+export function isBuiltinStoryType(id: string): id is BuiltinStoryType {
+  return (ALL_STORY_TYPES as string[]).includes(id);
+}
+
+export interface CustomRssFeed {
+  id: string;
+  label: string;
+  url: string;
+}
 
 export type FetchMode = 'eager' | 'lazy';
 
@@ -81,7 +146,7 @@ export interface Item {
   text: string;
   url: string;
   title: string;
-  type: 'story' | 'comment' | 'poll' | 'pollopt' | 'job' | string;
+  type: 'story' | 'comment' | string;
   kids: number[];
   parts: number[];
   image?: string;
@@ -92,29 +157,12 @@ export interface Item {
 }
 
 export interface Story extends Item {
-  type: 'story' | 'poll' | 'job' | string;
+  type: 'story' | string;
 }
 
 export interface Comment extends Item {
   level: number;
   isFromCache?: boolean;
-}
-
-export interface PollOption {
-  id: number;
-  text: string;
-  score: number;
-  by: string;
-  time: number;
-  ratio: number;
-}
-
-export interface HNUser {
-  id: string;
-  created: number;
-  karma: number;
-  about: string;
-  submitted?: number[];
 }
 
 export interface WebPreviewInfo {
@@ -158,6 +206,7 @@ export interface Preferences {
   font: FontOption;
   fontSize: FontSizeOption;
   tabOrder: StoryType[];
+  configuredFeeds: ConfiguredFeed[];
   storyMarkingMode: StoryMarkingMode;
   appColorId: string;
   dateFormat: DateDisplayFormat;

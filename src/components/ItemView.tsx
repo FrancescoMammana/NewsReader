@@ -19,9 +19,9 @@ import {
   type FontSizeOption,
   type ItemScreenArgs,
   type Story,
-} from '../types/hn';
+} from '../types/tmw';
 import { useApp } from '../context/AppContext';
-import { fetchTmwArticle } from '../services/hnApi';
+import { fetchTmwArticle } from '../services/tmwApi';
 import { storage } from '../services/storage';
 import { formatTimestamp, getReadableUrl } from '../utils/formatting';
 import { CommentTile } from './CommentTile';
@@ -100,10 +100,13 @@ export const ItemView: React.FC<ItemViewProps> = ({ args, isSplitView }) => {
     try {
       const full = await fetchTmwArticle(args.item.url);
       if (full) {
+        const prevText = (args.item as Story).text || '';
+        const nextText = full.text || '';
         const merged: Story = {
           ...(args.item as Story),
           ...full,
           title: full.title || args.item.title,
+          text: nextText.length >= prevText.length ? nextText : prevText,
           image: full.image || (args.item as Story).image,
           category: full.category || (args.item as Story).category,
           label: (args.item as Story).label || full.label,
@@ -425,7 +428,7 @@ export const ItemView: React.FC<ItemViewProps> = ({ args, isSplitView }) => {
               {article.category && (
                 <span
                   className="px-2 py-0.5 rounded font-semibold uppercase tracking-wide text-[11px]"
-                  style={{ backgroundColor: 'var(--hacki-accent-soft)', color: accentHex }}
+                  style={{ backgroundColor: 'var(--tmw-accent-soft)', color: accentHex }}
                 >
                   {article.category}
                 </span>
@@ -476,7 +479,7 @@ export const ItemView: React.FC<ItemViewProps> = ({ args, isSplitView }) => {
 
           {loading && !article.text && (
             <div className="py-10 text-center text-sm text-neutral-500">
-              Loading full article from TuttoMercatoWeb...
+              Caricamento articolo completo...
             </div>
           )}
 
@@ -492,7 +495,7 @@ export const ItemView: React.FC<ItemViewProps> = ({ args, isSplitView }) => {
 
           {article.url && (
             <div className="mt-5 pt-3 border-t border-neutral-100 dark:border-neutral-900 flex items-center justify-between text-xs text-neutral-500">
-              <span>Source: {domain || 'tuttomercatoweb.com'}</span>
+              <span>Source: {domain || 'fonte originale'}</span>
               <a
                 href={article.url}
                 target="_blank"
@@ -500,7 +503,7 @@ export const ItemView: React.FC<ItemViewProps> = ({ args, isSplitView }) => {
                 className="font-medium hover:underline flex items-center gap-1"
                 style={{ color: accentHex }}
               >
-                <span>Leggi su TuttoMercatoWeb</span>
+                <span>Leggi su {domain || 'sito originale'}</span>
                 <ExternalLink className="w-3.5 h-3.5" />
               </a>
             </div>

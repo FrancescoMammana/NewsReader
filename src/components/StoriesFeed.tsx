@@ -1,7 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { Download, RefreshCw, WifiOff, X } from 'lucide-react';
-import type { Story, StoryType } from '../types/hn';
-import { useApp } from '../context/AppContext';
+import type { Story, StoryType } from '../types/tmw';
+import { EMPTY_FEED_BUCKET, useApp } from '../context/AppContext';
 import { StoryTile } from './StoryTile';
 
 interface StoriesFeedProps {
@@ -28,7 +28,7 @@ export const StoriesFeed: React.FC<StoriesFeedProps> = ({ storyType }) => {
     downloadForOffline,
   } = useApp();
 
-  const bucket = feeds[storyType];
+  const bucket = feeds[storyType] ?? EMPTY_FEED_BUCKET;
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {

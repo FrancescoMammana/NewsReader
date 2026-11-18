@@ -64,7 +64,7 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({ compact = fa
               <div className="flex items-center gap-2.5">
                 <img
                   src="/pwa-192x192.png"
-                  alt="Hacki TMW"
+                  alt="TMW Reader"
                   className="w-10 h-10 rounded-lg shrink-0"
                 />
                 <div>

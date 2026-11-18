@@ -1,7 +1,7 @@
 import React from 'react';
 import { useApp } from '../context/AppContext';
-import { fetchTmwArticle } from '../services/hnApi';
-import { extractHnItemId } from '../utils/formatting';
+import { fetchTmwArticle } from '../services/tmwApi';
+import { extractTmwItemId } from '../utils/formatting';
 
 interface ItemTextProps {
   text: string;
@@ -30,7 +30,7 @@ function renderInlineFormatting(
           rel="noopener noreferrer"
           onClick={(e) => onUrlClick(part, e)}
           className="underline break-all hover:opacity-80 transition-opacity"
-          style={{ color: 'var(--hacki-accent)' }}
+          style={{ color: 'var(--tmw-accent)' }}
         >
           {part}
         </a>,
@@ -73,7 +73,7 @@ export const ItemText: React.FC<ItemTextProps> = ({ text, fontSizePx = 15, class
   if (!text) return null;
 
   const handleUrlClick = async (url: string, e: React.MouseEvent) => {
-    const tmwId = extractHnItemId(url);
+    const tmwId = extractTmwItemId(url);
     if (tmwId) {
       e.preventDefault();
       e.stopPropagation();

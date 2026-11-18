@@ -1,12 +1,14 @@
 import {
-  ALL_STORY_TYPES,
   type Comment,
+  type ConfiguredFeed,
+  type CustomRssFeed,
+  DEFAULT_CONFIGURED_FEEDS,
   type Item,
   type Preferences,
   type Story,
   type StoryType,
   type WebPreviewInfo,
-} from '../types/hn';
+} from '../types/tmw';
 
 const KEYS = {
   PREFS: 'tmw_prefs_v1',
@@ -29,7 +31,8 @@ export const DEFAULT_PREFERENCES: Preferences = {
   commentsOrder: 'natural',
   font: 'RobotoSlab',
   fontSize: 'regular',
-  tabOrder: ['latest', 'serieA', 'estero', 'serieB', 'editoriale'],
+  tabOrder: DEFAULT_CONFIGURED_FEEDS.map((f) => f.id),
+  configuredFeeds: DEFAULT_CONFIGURED_FEEDS,
   storyMarkingMode: 'tap',
   appColorId: 'deepOrange',
   dateFormat: 'timeAgo',
@@ -67,20 +70,70 @@ function writeJson<T>(key: string, value: T): void {
   }
 }
 
-function sanitizeTabOrder(order?: unknown): StoryType[] {
-  if (!Array.isArray(order)) return DEFAULT_PREFERENCES.tabOrder;
-  const valid = order.filter((t): t is StoryType => ALL_STORY_TYPES.includes(t as StoryType));
-  if (valid.length !== ALL_STORY_TYPES.length) return DEFAULT_PREFERENCES.tabOrder;
+function sanitizeConfiguredFeeds(raw?: unknown): ConfiguredFeed[] {
+  if (!Array.isArray(raw)) return DEFAULT_CONFIGURED_FEEDS;
+  return raw.filter(
+    (f): f is ConfiguredFeed =>
+      Boolean(f) &&
+      typeof f === 'object' &&
+      typeof (f as ConfiguredFeed).id === 'string' &&
+      typeof (f as ConfiguredFeed).label === 'string' &&
+      ((f as ConfiguredFeed).kind === 'tmw' || (f as ConfiguredFeed).kind === 'rss') &&
+      typeof (f as ConfiguredFeed).source === 'string' &&
+      typeof (f as ConfiguredFeed).url === 'string',
+  );
+}
+
+function sanitizeLegacyCustomFeeds(raw?: unknown): ConfiguredFeed[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter(
+      (f): f is CustomRssFeed =>
+        Boolean(f) &&
+        typeof f === 'object' &&
+        typeof (f as CustomRssFeed).id === 'string' &&
+        typeof (f as CustomRssFeed).label === 'string' &&
+        typeof (f as CustomRssFeed).url === 'string',
+    )
+    .map((f) => ({
+      id: f.id,
+      label: f.label,
+      kind: 'rss' as const,
+      source: f.url,
+      url: f.url,
+    }));
+}
+
+function sanitizeTabOrder(order?: unknown, feeds: ConfiguredFeed[] = []): StoryType[] {
+  const allowed = new Set<string>(feeds.map((f) => f.id));
+  if (!Array.isArray(order)) {
+    return feeds.map((f) => f.id);
+  }
+  const seen = new Set<string>();
+  const valid: StoryType[] = [];
+  for (const t of order) {
+    if (typeof t === 'string' && allowed.has(t) && !seen.has(t)) {
+      seen.add(t);
+      valid.push(t);
+    }
+  }
+  for (const f of feeds) {
+    if (!seen.has(f.id)) valid.push(f.id);
+  }
   return valid;
 }
 
 export const storage = {
   getPreferences(): Preferences {
-    const saved = readJson<Partial<Preferences>>(KEYS.PREFS, {});
+    const saved = readJson<Partial<Preferences> & { customFeeds?: unknown }>(KEYS.PREFS, {});
+    const configuredFeeds = Array.isArray(saved.configuredFeeds)
+      ? sanitizeConfiguredFeeds(saved.configuredFeeds)
+      : [...DEFAULT_CONFIGURED_FEEDS, ...sanitizeLegacyCustomFeeds(saved.customFeeds)];
     return {
       ...DEFAULT_PREFERENCES,
       ...saved,
-      tabOrder: sanitizeTabOrder(saved.tabOrder),
+      configuredFeeds,
+      tabOrder: sanitizeTabOrder(saved.tabOrder, configuredFeeds),
     };
   },
   savePreferences(prefs: Preferences): void {
