@@ -1,11 +1,27 @@
-<div align="center">
+# Hacki × TUTTOmercatoWEB
 
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
+A split-view news reader for [**tuttomercatoweb.com**](https://www.tuttomercatoweb.com/), built with **React**, **TypeScript**, and **Tailwind CSS**, backed by an **Express** proxy server.
 
-  <h1>Built with AI Studio</h2>
+## Features
 
-  <p>The fastest path from prompt to production with Gemini.</p>
+- **Responsive Split-View**: Dual-pane news feed + full article reader on desktop/tablet with expand/restore toggle, and stacked navigation on mobile.
+- **TuttoMercatoWeb Categories**: Browse **Ultime**, **Serie A**, **Estero**, **Serie B**, and **Editoriali** with customizable tab order, pinned articles, read-article tracking (on tap or scroll), keyword filtering, and "Pick up where you left off" reminder.
+- **Full Article Reader**: Fetches full article headlines, subtitles, journalists, timestamps, cover images, body text, and clickable related articles (`Notizie correlate`).
+- **Personal Reader Notes**: Add, reply to, edit, collapse, and search personal notes per article in local storage.
+- **Offline Reading Mode**: Cache TuttoMercatoWeb feeds and full article bodies locally for offline reading.
+- **Search & Favorites**: Search TuttoMercatoWeb articles by keyword, section tag (`serie-a`, `serie-b`, `calcio-estero`, `editoriale`, `rassegna-stampa`, `esclusiva`), and date range; save favorites with QR/clipboard export and ID import.
+- **Customizable Appearance**: Choose font family (`Roboto Slab`, `Ubuntu`, `Ubuntu Mono`, `Noto Serif`, `Exo 2`, `Atkinson Hyperlegible`, `System Sans`), text scale factor, accent color, and `Light` / `Dark` / `System` / `True Dark Mode`.
 
-  <a href="https://aistudio.google.com/apps">Start building</a>
+## Development
 
-</div>
+```bash
+npm install
+npm run dev
+```
+
+## Production Build
+
+```bash
+npm run build
+npm run start
+```

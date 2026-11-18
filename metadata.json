@@ -1,0 +1,5 @@
+{
+  "name": "Hacki",
+  "description": "A Hacker News reader client with split-view threads, Algolia search, offline reading, polls, favorites, and customizable typography.",
+  "requestFramePermissions": []
+}
