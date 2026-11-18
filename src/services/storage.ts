@@ -37,7 +37,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   appColorId: 'deepOrange',
   dateFormat: 'timeAgo',
   textScaleFactor: 1,
-  themeMode: 'system',
+  themeMode: 'light',
   isComplexStoryTileEnabled: true,
   isFaviconEnabled: true,
   isMetadataEnabled: true,

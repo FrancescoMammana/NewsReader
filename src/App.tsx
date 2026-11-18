@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Newspaper, Plus, SlidersHorizontal } from 'lucide-react';
+import { Moon, Newspaper, Plus, SlidersHorizontal, Sun } from 'lucide-react';
 import { type FontOption } from './types/tmw';
 import { useApp } from './context/AppContext';
 import { ItemView } from './components/ItemView';
@@ -42,6 +42,7 @@ function useIsDesktop(): boolean {
 export const App: React.FC = () => {
   const {
     preferences,
+    updatePreference,
     accentHex,
     isDarkActive,
     activeTab,
@@ -108,9 +109,17 @@ export const App: React.FC = () => {
                 <div className="flex items-center gap-1 shrink-0">
                   <button
                     type="button"
+                    onClick={() => updatePreference('themeMode', isDarkActive ? 'light' : 'dark')}
+                    title={isDarkActive ? 'Passa al tema chiaro' : 'Passa al tema scuro'}
+                    className="p-1.5 rounded-md bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 text-neutral-700 dark:text-neutral-200 cursor-pointer transition-colors"
+                  >
+                    {isDarkActive ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => setAddRssOpen(true)}
                     title="Aggiungi feed RSS / Atom"
-                    className="px-2 py-1 rounded-md text-xs font-medium bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 flex items-center gap-1 text-neutral-700 dark:text-neutral-200"
+                    className="px-2 py-1 rounded-md text-xs font-medium bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 flex items-center gap-1 text-neutral-700 dark:text-neutral-200 cursor-pointer"
                   >
                     <Plus className="w-3.5 h-3.5" />
                     <span>Aggiungi RSS</span>
@@ -120,7 +129,7 @@ export const App: React.FC = () => {
                     type="button"
                     onClick={() => setActiveTab('profile')}
                     title="Search, Favorites & Settings"
-                    className={`px-2.5 py-1 rounded-md flex items-center gap-1 text-xs font-semibold transition-colors ${
+                    className={`px-2.5 py-1 rounded-md flex items-center gap-1 text-xs font-semibold transition-colors cursor-pointer ${
                       activeTab === 'profile'
                         ? 'bg-neutral-900 text-white dark:bg-white dark:text-neutral-900'
                         : 'bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 text-neutral-700 dark:text-neutral-200'
