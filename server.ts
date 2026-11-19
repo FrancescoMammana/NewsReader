@@ -1132,58 +1132,110 @@ app.post('/api/podcast/generate', async (req: Request, res: Response) => {
       )
       .join('\n\n---\n\n');
 
-    const scriptResponse = await ai.models.generateContent({
-      model: 'gemini-4-hydrogen',
-      contents: `Prepara una rassegna stampa audio in italiano per la sezione "${feedLabel}" basata su questi ${articles.length} articoli:\n\n${articlesPromptBlock}`,
-      config: {
-        thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
-        systemInstruction:
-          'Sei un giornalista radiofonico professionista di lingua madre italiana. Ricevi fino a 15 articoli che possono essere scritti in qualsiasi lingua (italiano, inglese, spagnolo, francese, tedesco, portoghese o altre) e devi tradurre, rielaborare e sintetizzare TUTTE le notizie in un unico bollettino audio scorrevole in ITALIANO perfetto. ' +
-          'Lunghezza complessiva compatta tra 300 e 450 parole (circa 2-3 minuti di lettura naturale), dando risalto ai fatti principali e raggruppando con transizioni fluide le notizie correlate. ' +
-          'Regole rigorose per il testo parlato: SOLO prosa naturale pronta per essere letta ad alta voce da uno speaker; NON includere mai URL, domini web, simboli markdown (*, **, #, >), elenchi puntati, parentesi tecniche o emoji. Scrivi eventuali sigle inglesi o nomi stranieri in forma chiara e scorrevole per una lettura italiana.',
-        responseMimeType: 'application/json',
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            episodeTitle: {
-              type: Type.STRING,
-              description: 'Titolo breve dell episodio del podcast in italiano.',
-            },
-            intro: {
-              type: Type.STRING,
-              description: 'Breve apertura da speaker radiofonico in italiano (1-2 frasi).',
-            },
-            segments: {
-              type: Type.ARRAY,
-              description: 'Segmenti del notiziario in italiano corrispondenti agli articoli forniti.',
-              items: {
-                type: Type.OBJECT,
-                properties: {
-                  storyId: {
-                    type: Type.INTEGER,
-                    description: 'ID numerico originale dell articolo.',
-                  },
-                  headline: {
-                    type: Type.STRING,
-                    description: 'Titolo sintetico della notizia tradotto in italiano.',
-                  },
-                  spokenText: {
-                    type: Type.STRING,
-                    description: 'Testo parlato in italiano fluido per questa notizia (2-4 frasi).',
-                  },
-                },
-                required: ['storyId', 'headline', 'spokenText'],
+    const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+    const isNonRetriableAuthError = (err: unknown): boolean => {
+      const e = err as { status?: number; message?: string };
+      const st = typeof e?.status === 'number' ? e.status : 0;
+      const msg = typeof e?.message === 'string' ? e.message : '';
+      return (
+        st === 401 ||
+        st === 403 ||
+        msg.includes('API_KEY_INVALID') ||
+        msg.includes('PERMISSION_DENIED')
+      );
+    };
+
+    const callWithRetryAndFallback = async <T>(
+      stage: string,
+      steps: Array<{ model: string; delayMs: number; run: () => Promise<T> }>,
+    ): Promise<T> => {
+      let lastErr: unknown;
+      for (let i = 0; i < steps.length; i++) {
+        const step = steps[i];
+        if (step.delayMs > 0) {
+          await sleep(step.delayMs);
+        }
+        try {
+          return await step.run();
+        } catch (err) {
+          lastErr = err;
+          if (isNonRetriableAuthError(err)) {
+            throw err;
+          }
+          const e = err as { status?: number; message?: string };
+          console.warn(
+            `[podcast/${stage}] attempt ${i + 1}/${steps.length} (${step.model}) failed:`,
+            e?.status ?? 'ERR',
+            typeof e?.message === 'string' ? e.message.slice(0, 140) : '',
+          );
+        }
+      }
+      throw lastErr;
+    };
+
+    const scriptPrompt = `Prepara una rassegna stampa audio in italiano per la sezione "${feedLabel}" basata su questi ${articles.length} articoli:\n\n${articlesPromptBlock}`;
+    const scriptSystemInstruction =
+      'Sei un giornalista radiofonico professionista di lingua madre italiana. Ricevi fino a 15 articoli che possono essere scritti in qualsiasi lingua (italiano, inglese, spagnolo, francese, tedesco, portoghese o altre) e devi tradurre, rielaborare e sintetizzare TUTTE le notizie in un unico bollettino audio scorrevole in ITALIANO perfetto. ' +
+      'Lunghezza complessiva compatta tra 300 e 450 parole (circa 2-3 minuti di lettura naturale), dando risalto ai fatti principali e raggruppando con transizioni fluide le notizie correlate. ' +
+      'Regole rigorose per il testo parlato: SOLO prosa naturale pronta per essere letta ad alta voce da uno speaker; NON includere mai URL, domini web, simboli markdown (*, **, #, >), elenchi puntati, parentesi tecniche o emoji. Scrivi eventuali sigle inglesi o nomi stranieri in forma chiara e scorrevole per una lettura italiana.';
+    const scriptResponseSchema = {
+      type: Type.OBJECT,
+      properties: {
+        episodeTitle: {
+          type: Type.STRING,
+          description: 'Titolo breve dell episodio del podcast in italiano.',
+        },
+        intro: {
+          type: Type.STRING,
+          description: 'Breve apertura da speaker radiofonico in italiano (1-2 frasi).',
+        },
+        segments: {
+          type: Type.ARRAY,
+          description: 'Segmenti del notiziario in italiano corrispondenti agli articoli forniti.',
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              storyId: {
+                type: Type.INTEGER,
+                description: 'ID numerico originale dell articolo.',
+              },
+              headline: {
+                type: Type.STRING,
+                description: 'Titolo sintetico della notizia tradotto in italiano.',
+              },
+              spokenText: {
+                type: Type.STRING,
+                description: 'Testo parlato in italiano fluido per questa notizia (2-4 frasi).',
               },
             },
-            outro: {
-              type: Type.STRING,
-              description: 'Breve chiusura finale da speaker radiofonico in italiano (1-2 frasi).',
-            },
+            required: ['storyId', 'headline', 'spokenText'],
           },
-          required: ['episodeTitle', 'intro', 'segments', 'outro'],
+        },
+        outro: {
+          type: Type.STRING,
+          description: 'Breve chiusura finale da speaker radiofonico in italiano (1-2 frasi).',
         },
       },
-    });
+      required: ['episodeTitle', 'intro', 'segments', 'outro'],
+    };
+
+    const runScriptModel = (model: string, thinkingLevel: ThinkingLevel) =>
+      ai.models.generateContent({
+        model,
+        contents: scriptPrompt,
+        config: {
+          thinkingConfig: { thinkingLevel },
+          systemInstruction: scriptSystemInstruction,
+          responseMimeType: 'application/json',
+          responseSchema: scriptResponseSchema,
+        },
+      });
+
+    const scriptResponse = await callWithRetryAndFallback('script', [
+      { model: 'gemini-4-hydrogen', delayMs: 0, run: () => runScriptModel('gemini-4-hydrogen', ThinkingLevel.LOW) },
+      { model: 'gemini-4-hydrogen', delayMs: 1200, run: () => runScriptModel('gemini-4-hydrogen', ThinkingLevel.LOW) },
+      { model: 'gemini-3.1-flash-lite', delayMs: 1000, run: () => runScriptModel('gemini-3.1-flash-lite', ThinkingLevel.MINIMAL) },
+    ]);
 
     const rawJson = (scriptResponse.text ?? '')
       .trim()
@@ -1229,9 +1281,9 @@ app.post('/api/podcast/generate', async (req: Request, res: Response) => {
     const ttsChunks = splitScriptForTts(fullScript, 3400);
     const wavBuffers: Buffer[] = [];
 
-    for (const chunkText of ttsChunks) {
-      const ttsResponse = await ai.models.generateContent({
-        model: 'gemini-3.8-flash-lite-tts',
+    const runTtsModel = (model: string, chunkText: string) =>
+      ai.models.generateContent({
+        model,
         contents: [
           {
             role: 'user',
@@ -1254,6 +1306,13 @@ app.post('/api/podcast/generate', async (req: Request, res: Response) => {
           },
         },
       });
+
+    for (const chunkText of ttsChunks) {
+      const ttsResponse = await callWithRetryAndFallback('tts', [
+        { model: 'gemini-3.8-flash-lite-tts', delayMs: 0, run: () => runTtsModel('gemini-3.8-flash-lite-tts', chunkText) },
+        { model: 'gemini-3.8-flash-lite-tts', delayMs: 1200, run: () => runTtsModel('gemini-3.8-flash-lite-tts', chunkText) },
+        { model: 'gemini-3.8-flash-tts', delayMs: 1000, run: () => runTtsModel('gemini-3.8-flash-tts', chunkText) },
+      ]);
 
       const base64Part = ttsResponse.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
       if (!base64Part) {
@@ -1291,6 +1350,12 @@ app.post('/api/podcast/generate', async (req: Request, res: Response) => {
     if (status === 429 || rawMsg.includes('RESOURCE_EXHAUSTED')) {
       res.status(429).json({
         error: 'Quota gratuita Gemini temporaneamente esaurita (429): attendi 1 minuto e riprova.',
+      });
+      return;
+    }
+    if (status === 503 || rawMsg.includes('UNAVAILABLE') || rawMsg.includes('high demand')) {
+      res.status(503).json({
+        error: 'I server Gemini sono momentaneamente sovraccarichi (503). Attendi qualche secondo e riprova.',
       });
       return;
     }
