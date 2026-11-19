@@ -994,11 +994,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         });
 
         const generated = await generatePodcastApi(feedLabel, payloadArticles);
-        const binaryStr = atob(generated.audioBase64);
-        const bytes = new Uint8Array(binaryStr.length);
-        for (let i = 0; i < binaryStr.length; i++) {
-          bytes[i] = binaryStr.charCodeAt(i);
-        }
+        const bytes = Uint8Array.from(atob(generated.audioBase64), (c) => c.charCodeAt(0));
         const audioBlob = new Blob([bytes], { type: generated.mimeType || 'audio/wav' });
 
         const episode: PodcastEpisode = {
@@ -1007,7 +1003,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           episodeTitle: generated.episodeTitle,
           script: generated.script,
           segments: generated.segments,
-          storyIds: targetStories.map((s) => s.id),
           storiesSignature,
           audioBlob,
           generatedAt: generated.generatedAt,

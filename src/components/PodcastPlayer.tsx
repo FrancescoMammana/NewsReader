@@ -86,52 +86,45 @@ export const PodcastPlayer: React.FC = () => {
   }, [playbackRate]);
 
   useEffect(() => {
-    if (!activePodcast || typeof navigator === 'undefined' || !('mediaSession' in navigator)) {
-      return;
-    }
+    if (!activePodcast || typeof navigator === 'undefined' || !('mediaSession' in navigator)) return;
     const ms = navigator.mediaSession;
+    const seek = (delta: number) => {
+      const audio = audioRef.current;
+      if (!audio) return;
+      audio.currentTime = Math.max(
+        0,
+        Math.min(audio.duration || Infinity, audio.currentTime + delta),
+      );
+    };
+    const handlers: Array<[MediaSessionAction, MediaSessionActionHandler]> = [
+      ['play', () => void audioRef.current?.play()],
+      ['pause', () => audioRef.current?.pause()],
+      ['seekbackward', () => seek(-15)],
+      ['seekforward', () => seek(15)],
+      [
+        'seekto',
+        (details) => {
+          if (audioRef.current && typeof details.seekTime === 'number') {
+            audioRef.current.currentTime = details.seekTime;
+          }
+        },
+      ],
+    ];
     try {
       ms.metadata = new MediaMetadata({
         title: activePodcast.episodeTitle,
         artist: `NewsReader Podcast · ${activePodcast.feedLabel}`,
         album: 'Rassegna Audio AI in Italiano',
       });
-      ms.setActionHandler('play', () => {
-        void audioRef.current?.play();
-      });
-      ms.setActionHandler('pause', () => {
-        audioRef.current?.pause();
-      });
-      ms.setActionHandler('seekbackward', () => {
-        if (audioRef.current) {
-          audioRef.current.currentTime = Math.max(0, audioRef.current.currentTime - 15);
-        }
-      });
-      ms.setActionHandler('seekforward', () => {
-        if (audioRef.current) {
-          audioRef.current.currentTime = Math.min(
-            audioRef.current.duration || Infinity,
-            audioRef.current.currentTime + 15,
-          );
-        }
-      });
-      ms.setActionHandler('seekto', (details) => {
-        if (audioRef.current && typeof details.seekTime === 'number') {
-          audioRef.current.currentTime = details.seekTime;
-        }
-      });
+      for (const [action, handler] of handlers) ms.setActionHandler(action, handler);
     } catch {
-      // Ignore unsupported MediaSession actions
+      // Azioni MediaSession non supportate dal browser.
     }
     return () => {
       try {
-        ms.setActionHandler('play', null);
-        ms.setActionHandler('pause', null);
-        ms.setActionHandler('seekbackward', null);
-        ms.setActionHandler('seekforward', null);
-        ms.setActionHandler('seekto', null);
+        for (const [action] of handlers) ms.setActionHandler(action, null);
       } catch {
-        // Ignore cleanup errors
+        // Ignora errori di pulizia.
       }
     };
   }, [activePodcast]);
@@ -219,7 +212,7 @@ export const PodcastPlayer: React.FC = () => {
           <div className="max-w-4xl mx-auto grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <h3 className="text-xs font-semibold uppercase tracking-wider text-neutral-500 dark:text-neutral-400 mb-2">
-                Notizie nell&apos;episodio ({activePodcast.segments.length || activePodcast.storyIds.length})
+                Notizie nell&apos;episodio ({activePodcast.segments.length})
               </h3>
               <ul className="divide-y divide-neutral-100 dark:divide-neutral-800/80 border border-neutral-200 dark:border-neutral-800 rounded-lg overflow-hidden">
                 {activePodcast.segments.map((seg, idx) => (
