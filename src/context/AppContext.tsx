@@ -741,8 +741,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const selectedItemArgs =
     itemHistoryStack.length > 0 ? itemHistoryStack[itemHistoryStack.length - 1] : null;
 
+  // Sincronizzazione con la history del browser per il tasto indietro nativo (Android / PWA)
+  useEffect(() => {
+    const handlePopState = () => {
+      if (itemHistoryStack.length > 0) {
+        setItemHistoryStack((prev) => prev.slice(0, -1));
+        setSplitViewExpanded(false);
+      } else if (activeTab === 'profile') {
+        setActiveTab(preferences.tabOrder[0] || 'latest');
+      }
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [itemHistoryStack.length, activeTab, preferences.tabOrder]);
+
   const openItem = useCallback(
     (args: ItemScreenArgs, pushToStack = false) => {
+      window.history.pushState({ readerState: 'item' }, '');
       setItemHistoryStack((prev) => (pushToStack ? [...prev, args] : [args]));
       if (args.item.type !== 'comment') {
         const story = args.item as Story;
@@ -757,13 +772,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   );
 
   const goBackItem = useCallback(() => {
-    setItemHistoryStack((prev) => prev.slice(0, -1));
+    if (window.history.state) {
+      window.history.back();
+    } else {
+      setItemHistoryStack((prev) => prev.slice(0, -1));
+    }
   }, []);
 
   const closeItem = useCallback(() => {
-    setItemHistoryStack([]);
-    setSplitViewExpanded(false);
-  }, []);
+    if (itemHistoryStack.length > 0 && window.history.state) {
+      window.history.back();
+    } else {
+      setItemHistoryStack([]);
+      setSplitViewExpanded(false);
+    }
+  }, [itemHistoryStack.length]);
 
   const clearAllCache = useCallback(() => {
     storage.clearCache();
