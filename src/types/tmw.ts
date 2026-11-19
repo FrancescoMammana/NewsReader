@@ -172,30 +172,11 @@ export interface WebPreviewInfo {
   icon?: string;
 }
 
-export type TypeTagFilter =
-  | 'serie-a'
-  | 'serie-b'
-  | 'calcio-estero'
-  | 'editoriale'
-  | 'rassegna-stampa'
-  | 'esclusiva';
-
-export const ALL_TYPE_TAG_FILTERS: TypeTagFilter[] = [
-  'serie-a',
-  'serie-b',
-  'calcio-estero',
-  'editoriale',
-  'rassegna-stampa',
-  'esclusiva',
-];
-
 export interface SearchParams {
   query: string;
   page: number;
   sorted: boolean;
   exactMatch: boolean;
-  postedBy: string;
-  typeTag: TypeTagFilter | null;
   startTime: number | null; // ms epoch
   endTime: number | null; // ms epoch
 }

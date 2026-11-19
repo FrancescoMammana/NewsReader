@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  ExternalLink,
+  CheckCircle2,
+  CircleDashed,
   Globe,
   Heart,
   MoreHorizontal,
@@ -41,11 +42,11 @@ export const StoryTile: React.FC<StoryTileProps> = ({
   disableActions = false,
 }) => {
   const {
-    isOfflineReading,
     isPinned,
     togglePin,
     isFav,
     toggleFav,
+    isOfflineCached,
     showToast,
   } = useApp();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -79,6 +80,7 @@ export const StoryTile: React.FC<StoryTileProps> = ({
   const domain = getReadableUrl(story.url);
   const pinned = isPinned(story.id);
   const faved = isFav(story.id);
+  const offlineReady = isOfflineCached(story.id);
   const faviconUrl = story.url ? getFaviconUrl(story.url, 32) : '';
 
   const handleCopyShare = (e: React.MouseEvent) => {
@@ -142,25 +144,29 @@ export const StoryTile: React.FC<StoryTileProps> = ({
 
             {!disableActions && (
               <div
-                className="relative shrink-0 flex items-center gap-0.5 opacity-70 group-hover:opacity-100 transition-opacity"
+                className="relative shrink-0 flex items-center gap-0.5"
                 onClick={(e) => e.stopPropagation()}
               >
-                {story.url && (
-                  <a
-                    href={story.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    title="Open on TuttoMercatoWeb"
-                    className="p-1.5 rounded hover:bg-neutral-200/70 dark:hover:bg-neutral-700/60 text-neutral-500 dark:text-neutral-400"
-                  >
-                    <ExternalLink className="w-3.5 h-3.5" />
-                  </a>
-                )}
+                <span
+                  title={
+                    offlineReady
+                      ? 'Articolo scaricato e disponibile offline'
+                      : 'Articolo non ancora scaricato offline'
+                  }
+                  aria-label={offlineReady ? 'Disponibile offline' : 'Non scaricato offline'}
+                  className="p-1.5 flex items-center justify-center"
+                >
+                  {offlineReady ? (
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                  ) : (
+                    <CircleDashed className="w-3.5 h-3.5 text-neutral-300 dark:text-neutral-600" />
+                  )}
+                </span>
                 <button
                   type="button"
                   onClick={() => setMenuOpen((o) => !o)}
                   aria-label="Article actions"
-                  className="p-1.5 rounded hover:bg-neutral-200/70 dark:hover:bg-neutral-700/60 text-neutral-500 dark:text-neutral-400"
+                  className="p-1.5 rounded hover:bg-neutral-200/70 dark:hover:bg-neutral-700/60 text-neutral-500 dark:text-neutral-400 opacity-70 group-hover:opacity-100 transition-opacity"
                 >
                   <MoreHorizontal className="w-4 h-4" />
                 </button>
@@ -224,7 +230,6 @@ export const StoryTile: React.FC<StoryTileProps> = ({
           {showWebPreview && (
             <LinkPreview
               story={story}
-              isOfflineReading={isOfflineReading}
               hasRead={hasRead}
               onOpenThread={onTap}
             />

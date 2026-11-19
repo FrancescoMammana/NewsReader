@@ -108,6 +108,21 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+button:not(:disabled),
+select:not(:disabled),
+input[type="checkbox"]:not(:disabled),
+input[type="radio"]:not(:disabled),
+input[type="range"],
+[role="button"]:not([aria-disabled="true"]) {
+  cursor: pointer;
+}
+
+button:disabled,
+select:disabled,
+input:disabled {
+  cursor: not-allowed;
+}
+
 .tabular-nums {
   font-variant-numeric: tabular-nums;
 }

@@ -23,7 +23,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
     openItem,
   } = useApp();
 
-  const [subPage, setSubPage] = useState<ProfileSubPage>('search');
+  const [subPage, setSubPage] = useState<ProfileSubPage>('settings');
 
   const tabs: Array<{ id: ProfileSubPage; label: string }> = [
     { id: 'search', label: 'Search' },

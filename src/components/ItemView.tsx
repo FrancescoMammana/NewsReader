@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeft,
+  CheckCircle2,
+  CircleDashed,
   ExternalLink,
   Heart,
   Maximize2,
@@ -22,6 +24,7 @@ import {
 } from '../types/tmw';
 import { useApp } from '../context/AppContext';
 import { fetchTmwArticle } from '../services/tmwApi';
+import { offlineDb } from '../services/offlineDb';
 import { storage } from '../services/storage';
 import { formatTimestamp, getReadableUrl } from '../utils/formatting';
 import { CommentTile } from './CommentTile';
@@ -37,7 +40,6 @@ export const ItemView: React.FC<ItemViewProps> = ({ args, isSplitView }) => {
     preferences,
     updatePreference,
     accentHex,
-    isOfflineReading,
     isFav,
     toggleFav,
     isPinned,
@@ -48,6 +50,8 @@ export const ItemView: React.FC<ItemViewProps> = ({ args, isSplitView }) => {
     itemHistoryStack,
     splitViewExpanded,
     setSplitViewExpanded,
+    isOfflineCached,
+    cacheArticleOffline,
     showToast,
   } = useApp();
 
@@ -80,10 +84,8 @@ export const ItemView: React.FC<ItemViewProps> = ({ args, isSplitView }) => {
 
   const loadArticle = useCallback(async () => {
     setImgFailed(false);
-    const offlineArticles = storage.getOfflineArticles();
-    const cached = offlineArticles[String(args.item.id)];
-    const offlineOnly =
-      isOfflineReading || (typeof navigator !== 'undefined' && !navigator.onLine);
+    const cached = await offlineDb.getArticle(args.item.id);
+    const offlineOnly = typeof navigator !== 'undefined' && !navigator.onLine;
 
     if (offlineOnly) {
       setArticle(cached ?? (args.item as Story));
@@ -91,12 +93,16 @@ export const ItemView: React.FC<ItemViewProps> = ({ args, isSplitView }) => {
       return;
     }
 
+    if (cached && cached.text && cached.text.length >= 180) {
+      setArticle(cached);
+    }
+
     if (!args.item.url) {
-      setArticle(args.item as Story);
+      if (!cached) setArticle(args.item as Story);
       return;
     }
 
-    setLoading(true);
+    setLoading(!(cached && cached.text && cached.text.length >= 180));
     try {
       const full = await fetchTmwArticle(args.item.url);
       if (full) {
@@ -112,10 +118,7 @@ export const ItemView: React.FC<ItemViewProps> = ({ args, isSplitView }) => {
           label: (args.item as Story).label || full.label,
         };
         setArticle(merged);
-        storage.saveOfflineArticles({
-          ...storage.getOfflineArticles(),
-          [String(args.item.id)]: merged,
-        });
+        void cacheArticleOffline(merged);
       } else if (cached) {
         setArticle(cached);
       }
@@ -126,7 +129,7 @@ export const ItemView: React.FC<ItemViewProps> = ({ args, isSplitView }) => {
     } finally {
       setLoading(false);
     }
-  }, [args.item, isOfflineReading]);
+  }, [args.item, cacheArticleOffline]);
 
   useEffect(() => {
     setArticle(args.item as Story);
@@ -268,6 +271,7 @@ export const ItemView: React.FC<ItemViewProps> = ({ args, isSplitView }) => {
   const domain = getReadableUrl(article.url);
   const faved = isFav(article.id);
   const pinned = isPinned(article.id);
+  const offlineReady = isOfflineCached(article.id);
 
   return (
     <div className="relative flex flex-col h-full bg-white dark:bg-neutral-950">
@@ -378,17 +382,21 @@ export const ItemView: React.FC<ItemViewProps> = ({ args, isSplitView }) => {
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
           </button>
 
-          {article.url && (
-            <a
-              href={article.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="p-2 rounded-lg hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-700 dark:text-neutral-200"
-              title="Open on TuttoMercatoWeb"
-            >
-              <ExternalLink className="w-4 h-4" />
-            </a>
-          )}
+          <span
+            title={
+              offlineReady
+                ? 'Articolo scaricato e disponibile offline'
+                : 'Articolo non ancora scaricato offline'
+            }
+            aria-label={offlineReady ? 'Disponibile offline' : 'Non scaricato offline'}
+            className="p-2 flex items-center justify-center"
+          >
+            {offlineReady ? (
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+            ) : (
+              <CircleDashed className="w-4 h-4 text-neutral-300 dark:text-neutral-600" />
+            )}
+          </span>
         </div>
       </div>
 

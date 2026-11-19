@@ -19,6 +19,7 @@ import {
   type ToastMessage,
 } from '../types/tmw';
 import { fetchCustomRssFeed, fetchTmwArticle, fetchTmwFeed } from '../services/tmwApi';
+import { offlineDb } from '../services/offlineDb';
 import { storage } from '../services/storage';
 import { shouldHideByKeywords } from '../utils/formatting';
 
@@ -63,7 +64,7 @@ interface AppContextValue {
   restoreDefaultTmwFeeds: () => void;
   getFeedLabel: (id: StoryType) => string;
 
-  // Stories & Offline
+  // Stories & Offline Cache
   feeds: FeedMap;
   ensureFeedLoaded: (type: StoryType) => void;
   refreshFeed: (type: StoryType) => Promise<void>;
@@ -71,10 +72,10 @@ interface AppContextValue {
   readStoryIds: Set<number>;
   markStoryRead: (story: Story) => void;
   clearReadStories: () => void;
-  isOfflineReading: boolean;
-  toggleOfflineMode: (enabled: boolean) => void;
-  offlineProgress: { active: boolean; current: number; total: number };
-  downloadForOffline: () => Promise<void>;
+  offlineArticleCount: number;
+  isOfflineCached: (id: number) => boolean;
+  cacheArticleOffline: (story: Story) => Promise<void>;
+  clearOfflineCache: () => Promise<void>;
 
   // Pins, Favorites, Keywords, Blocklist
   pinnedStories: Story[];
@@ -112,8 +113,6 @@ interface AppContextValue {
 
   userDialogUsername: string | null;
   openUserDialog: (author: string | null) => void;
-
-  clearAllCache: () => void;
 
   // Toasts
   toasts: ToastMessage[];
@@ -213,7 +212,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const clearReadStories = useCallback(() => {
     setReadStoryIds(new Set());
     storage.saveReadStoryIds([]);
-  }, []);
+    showToast('Cronologia articoli letti azzerata');
+  }, [showToast]);
 
   const dismissReminder = useCallback(() => {
     setLastReadStory(null);
@@ -279,23 +279,84 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
   }, []);
 
-  // Favorites (persisted with full article metadata)
+  // Favorites (persisted with full article metadata + IndexedDB offline copy)
   const [favItems, setFavItems] = useState<Item[]>(() => storage.getFavItems());
   const favIds = useMemo(() => favItems.map((i) => i.id), [favItems]);
+  const favIdSetRef = useRef<Set<number>>(new Set(favIds));
+  favIdSetRef.current = new Set(favIds);
   const isFav = useCallback((id: number) => favItems.some((i) => i.id === id), [favItems]);
+
+  const [offlineArticleIds, setOfflineArticleIds] = useState<Set<number>>(new Set());
+  const offlineArticleCount = offlineArticleIds.size;
+
+  const refreshOfflineIds = useCallback(async () => {
+    const ids = await offlineDb.getOfflineArticleIds();
+    setOfflineArticleIds(new Set(ids));
+  }, []);
+
+  const isOfflineCached = useCallback(
+    (id: number) => offlineArticleIds.has(id),
+    [offlineArticleIds],
+  );
+
+  const cacheArticleOffline = useCallback(async (story: Story) => {
+    await offlineDb.saveArticle(story, favIdSetRef.current);
+    const ids = await offlineDb.getOfflineArticleIds();
+    setOfflineArticleIds(new Set(ids));
+  }, []);
+
+  useEffect(() => {
+    offlineDb.clearLegacyLocalStorage();
+    void refreshOfflineIds();
+  }, [refreshOfflineIds]);
 
   const toggleFav = useCallback(
     (item: Item) => {
+      const exists = favIdSetRef.current.has(item.id);
       setFavItems((prev) => {
-        const exists = prev.some((i) => i.id === item.id);
         const next = exists ? prev.filter((i) => i.id !== item.id) : [item, ...prev];
         storage.saveFavItems(next);
         storage.saveFavIds(next.map((x) => x.id));
-        showToast(exists ? 'Removed from favorites' : 'Added to favorites');
         return next;
       });
+      showToast(exists ? 'Removed from favorites' : 'Added to favorites');
+
+      if (!exists) {
+        const nextProtected = new Set(favIdSetRef.current);
+        nextProtected.add(item.id);
+        void (async () => {
+          const story = item as Story;
+          await offlineDb.saveArticle(story, nextProtected);
+          await refreshOfflineIds();
+          if (story.url && (typeof navigator === 'undefined' || navigator.onLine)) {
+            const full = await fetchTmwArticle(story.url).catch(() => null);
+            if (full) {
+              const merged: Story = {
+                ...story,
+                ...full,
+                title: full.title || story.title,
+                text:
+                  (full.text || '').length >= (story.text || '').length
+                    ? full.text
+                    : story.text,
+                image: full.image || story.image,
+                category: full.category || story.category,
+                label: story.label || full.label,
+              };
+              await offlineDb.saveArticle(merged, nextProtected);
+              setFavItems((cur) => {
+                if (!cur.some((x) => x.id === merged.id)) return cur;
+                const updated = cur.map((x) => (x.id === merged.id ? merged : x));
+                storage.saveFavItems(updated);
+                return updated;
+              });
+            }
+          }
+          await refreshOfflineIds();
+        })();
+      }
     },
-    [showToast],
+    [showToast, refreshOfflineIds],
   );
 
   const removeFav = useCallback((id: number) => {
@@ -361,9 +422,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     [favItems, showToast],
   );
 
-  // Offline mode & Feeds
-  const [isOfflineReading, setIsOfflineReading] = useState(false);
-  const [offlineProgress, setOfflineProgress] = useState({ active: false, current: 0, total: 0 });
+  // Feeds & Automatic IndexedDB Offline Prefetch
   const [feeds, setFeeds] = useState<FeedMap>(() =>
     createInitialFeeds(preferences.configuredFeeds.map((f) => f.id)),
   );
@@ -391,6 +450,55 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     [filterKeywords],
   );
 
+  const prefetchTabArticles = useCallback(async (stories: Story[], limit = 15) => {
+    if (typeof navigator !== 'undefined' && !navigator.onLine) return;
+    const targets = stories.slice(0, limit);
+    if (targets.length === 0) return;
+
+    const queue = [...targets];
+    const workerCount = Math.min(4, queue.length);
+
+    const runWorker = async () => {
+      while (queue.length > 0) {
+        const story = queue.shift();
+        if (!story) break;
+        try {
+          const existing = await offlineDb.getArticle(story.id);
+          if (existing && existing.text && existing.text.length >= 180) {
+            continue;
+          }
+          if (!story.url) {
+            if (story.text) await offlineDb.saveArticle(story, favIdSetRef.current);
+            continue;
+          }
+          const full = await fetchTmwArticle(story.url).catch(() => null);
+          if (full) {
+            const merged: Story = {
+              ...story,
+              ...full,
+              title: full.title || story.title,
+              text:
+                (full.text || '').length >= (story.text || '').length
+                  ? full.text
+                  : story.text,
+              image: full.image || story.image,
+              category: full.category || story.category,
+              label: story.label || full.label,
+            };
+            await offlineDb.saveArticle(merged, favIdSetRef.current);
+          } else if (story.text) {
+            await offlineDb.saveArticle(story, favIdSetRef.current);
+          }
+        } catch {
+          // Ignore individual prefetch failure
+        }
+      }
+    };
+
+    await Promise.all(Array.from({ length: workerCount }, () => runWorker()));
+    await refreshOfflineIds();
+  }, [refreshOfflineIds]);
+
   const fetchFeedByKey = useCallback(
     async (
       type: StoryType,
@@ -410,11 +518,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const refreshFeed = useCallback(
     async (type: StoryType) => {
-      const offlineActive =
-        isOfflineReading || (typeof navigator !== 'undefined' && !navigator.onLine);
+      const deviceOffline = typeof navigator !== 'undefined' && !navigator.onLine;
 
-      if (offlineActive) {
-        const cached = storage.getOfflineStories()[type] ?? [];
+      if (deviceOffline) {
+        const cached = await offlineDb.getFeedStories(type);
         setFeeds((prev) => ({
           ...prev,
           [type]: {
@@ -438,11 +545,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       try {
         const { stories, nextStart } = await fetchFeedByKey(type, 0);
-        const existingOffline = storage.getOfflineStories();
-        storage.saveOfflineStories({
-          ...existingOffline,
-          [type]: stories.slice(0, 20),
-        });
+        void offlineDb.saveFeedStories(type, stories);
+        void prefetchTabArticles(stories, 15);
 
         setFeeds((prev) => ({
           ...prev,
@@ -455,7 +559,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           },
         }));
       } catch (err) {
-        const cached = storage.getOfflineStories()[type] ?? [];
+        const cached = await offlineDb.getFeedStories(type);
         if (cached.length > 0) {
           setFeeds((prev) => ({
             ...prev,
@@ -472,7 +576,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           const msg =
             err instanceof Error && err.message
               ? err.message
-              : 'Impossibile caricare il feed. Verifica la connessione o attiva la Modalità Offline.';
+              : 'Impossibile caricare il feed. Verifica la connessione.';
           setFeeds((prev) => ({
             ...prev,
             [type]: {
@@ -484,7 +588,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
       }
     },
-    [isOfflineReading, fetchFeedByKey, applyKeywordFilter, showToast],
+    [fetchFeedByKey, prefetchTabArticles, applyKeywordFilter, showToast],
   );
 
   const addCustomFeed = useCallback(
@@ -515,11 +619,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           return next;
         });
 
-        const existingOffline = storage.getOfflineStories();
-        storage.saveOfflineStories({
-          ...existingOffline,
-          [newFeed.id]: stories.slice(0, 20),
-        });
+        void offlineDb.saveFeedStories(newFeed.id, stories);
+        void prefetchTabArticles(stories, 15);
 
         setFeeds((prev) => ({
           ...prev,
@@ -543,7 +644,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         return false;
       }
     },
-    [applyKeywordFilter, showToast],
+    [applyKeywordFilter, prefetchTabArticles, showToast],
   );
 
   const removeFeed = useCallback(
@@ -563,6 +664,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         delete copy[id];
         return copy;
       });
+      void offlineDb.deleteFeedStories(id);
       setActiveTab((cur) => (cur === id ? nextOrder[0] ?? 'profile' : cur));
       showToast('Feed rimosso');
     },
@@ -611,7 +713,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const loadMoreFeed = useCallback(
     async (type: StoryType) => {
       const feed = configuredFeedsRef.current.find((f) => f.id === type);
-      if (isOfflineReading || !feed || feed.kind !== 'tmw') return;
+      const deviceOffline = typeof navigator !== 'undefined' && !navigator.onLine;
+      if (deviceOffline || !feed || feed.kind !== 'tmw') return;
       const bucket = feedsRef.current[type];
       if (!bucket || bucket.loading || bucket.loadingMore || bucket.nextStart === null) return;
 
@@ -643,7 +746,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }));
       }
     },
-    [isOfflineReading, applyKeywordFilter],
+    [applyKeywordFilter],
   );
 
   useEffect(() => {
@@ -662,77 +765,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
   }, [filterKeywords]);
 
-  const toggleOfflineMode = useCallback(
-    (enabled: boolean) => {
-      setIsOfflineReading(enabled);
-      const tabIds = configuredFeedsRef.current.map((f) => f.id);
-      if (enabled) {
-        const offlineMap = storage.getOfflineStories();
-        setFeeds(() => {
-          const next: FeedMap = {};
-          for (const t of tabIds) {
-            const list = offlineMap[t] ?? [];
-            next[t] = {
-              stories: applyKeywordFilter(list),
-              nextStart: null,
-              loading: false,
-              loadingMore: false,
-              error: null,
-            };
-          }
-          return next;
-        });
-        showToast('Offline Reading Mode enabled');
-      } else {
-        setFeeds(createInitialFeeds(tabIds));
-        showToast('Switched back to Online Mode');
-      }
-    },
-    [applyKeywordFilter, showToast],
-  );
-
-  const downloadForOffline = useCallback(async () => {
-    if (offlineProgress.active) return;
-    const types = preferences.tabOrder;
-    const perTab = 10;
-    const totalStories = types.length * perTab;
-    let done = 0;
-    setOfflineProgress({ active: true, current: 0, total: totalStories });
-
-    const offlineStoriesMap: Record<string, Story[]> = storage.getOfflineStories();
-    const offlineArticlesMap: Record<string, Story> = storage.getOfflineArticles();
-
-    try {
-      for (const t of types) {
-        const res = await fetchFeedByKey(t, 0).catch(() => ({ stories: [] as Story[], nextStart: null }));
-        const batch = res.stories.slice(0, 20);
-        offlineStoriesMap[t] = batch;
-        for (const story of batch.slice(0, perTab)) {
-          done++;
-          setOfflineProgress({ active: true, current: done, total: totalStories });
-          if (story.url) {
-            const full = await fetchTmwArticle(story.url).catch(() => null);
-            if (full) {
-              offlineArticlesMap[String(story.id)] = {
-                ...story,
-                ...full,
-                text: full.text && full.text.length > (story.text || '').length ? full.text : story.text || full.text,
-              };
-            } else if (story.text) {
-              offlineArticlesMap[String(story.id)] = story;
-            }
-          }
-        }
-      }
-      storage.saveOfflineStories(offlineStoriesMap);
-      storage.saveOfflineArticles(offlineArticlesMap);
-      showToast('Articoli salvati per la lettura offline.', { variant: 'success' });
-    } catch {
-      showToast('Offline download encountered an error.', { variant: 'error' });
-    } finally {
-      setOfflineProgress({ active: false, current: 0, total: 0 });
-    }
-  }, [offlineProgress.active, preferences.tabOrder, fetchFeedByKey, showToast]);
+  const clearOfflineCache = useCallback(async () => {
+    await offlineDb.clearOfflineData(favIdSetRef.current);
+    storage.clearPreviews();
+    await refreshOfflineIds();
+    showToast('Articoli offline rimossi (preferiti mantenuti)', { variant: 'success' });
+  }, [showToast, refreshOfflineIds]);
 
   // Split View & Item Navigation
   const [itemHistoryStack, setItemHistoryStack] = useState<ItemScreenArgs[]>([]);
@@ -788,12 +826,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   }, [itemHistoryStack.length]);
 
-  const clearAllCache = useCallback(() => {
-    storage.clearCache();
-    setReadStoryIds(new Set());
-    showToast('Cache cleared!', { variant: 'success' });
-  }, [showToast]);
-
   const [userDialogUsername, setUserDialogUsername] = useState<string | null>(null);
 
   const value: AppContextValue = {
@@ -814,10 +846,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     readStoryIds,
     markStoryRead,
     clearReadStories,
-    isOfflineReading,
-    toggleOfflineMode,
-    offlineProgress,
-    downloadForOffline,
+    offlineArticleCount,
+    isOfflineCached,
+    cacheArticleOffline,
+    clearOfflineCache,
     pinnedStories,
     isPinned,
     togglePin,
@@ -846,7 +878,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     dismissReminder,
     userDialogUsername,
     openUserDialog: setUserDialogUsername,
-    clearAllCache,
     toasts,
     showToast,
     dismissToast,

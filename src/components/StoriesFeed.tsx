@@ -1,7 +1,8 @@
 import React, { useEffect, useRef } from 'react';
-import { Download, RefreshCw, WifiOff, X } from 'lucide-react';
+import { RefreshCw, WifiOff, X } from 'lucide-react';
 import type { Story, StoryType } from '../types/tmw';
 import { EMPTY_FEED_BUCKET, useApp } from '../context/AppContext';
+import { useOnlineStatus } from '../hooks/usePWAInstall';
 import { StoryTile } from './StoryTile';
 
 interface StoriesFeedProps {
@@ -22,11 +23,8 @@ export const StoriesFeed: React.FC<StoriesFeedProps> = ({ storyType }) => {
     markStoryRead,
     selectedItemArgs,
     openItem,
-    isOfflineReading,
-    toggleOfflineMode,
-    offlineProgress,
-    downloadForOffline,
   } = useApp();
+  const isOnline = useOnlineStatus();
 
   const bucket = feeds[storyType] ?? EMPTY_FEED_BUCKET;
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -60,62 +58,25 @@ export const StoriesFeed: React.FC<StoriesFeedProps> = ({ storyType }) => {
 
   return (
     <div className="flex flex-col h-full">
-      {isOfflineReading && (
-        <div className="px-3.5 py-1.5 bg-neutral-900 text-white dark:bg-neutral-800 text-xs flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <WifiOff className="w-3.5 h-3.5" />
-            <span>Modalità Offline attiva</span>
-          </div>
-          <button
-            type="button"
-            onClick={() => toggleOfflineMode(false)}
-            className="underline hover:opacity-80"
-          >
-            Torna Online
-          </button>
+      {!isOnline && (
+        <div className="px-3.5 py-1.5 bg-neutral-900 text-white dark:bg-neutral-800 text-xs flex items-center gap-2">
+          <WifiOff className="w-3.5 h-3.5" />
+          <span>Connessione assente — lettura articoli salvati offline</span>
         </div>
       )}
 
       {/* Feed Action Bar */}
       <div className="px-3.5 py-1.5 border-b border-neutral-200/70 dark:border-neutral-800/80 flex items-center justify-between gap-2 text-xs text-neutral-500">
         <span className="tabular-nums truncate">{visibleCount} articoli</span>
-        <div className="flex items-center gap-3 shrink-0">
-          <button
-            type="button"
-            disabled={offlineProgress.active}
-            onClick={() => void downloadForOffline()}
-            title="Scarica articoli per lettura offline"
-            className="flex items-center gap-1 hover:text-neutral-900 dark:hover:text-neutral-100 disabled:opacity-50"
-          >
-            <Download className="w-3.5 h-3.5" />
-            <span>
-              {offlineProgress.active
-                ? `${offlineProgress.current}/${offlineProgress.total}`
-                : 'Salva offline'}
-            </span>
-          </button>
-          <button
-            type="button"
-            onClick={() => toggleOfflineMode(!isOfflineReading)}
-            title={isOfflineReading ? 'Torna online' : 'Attiva lettura offline'}
-            className={`flex items-center gap-1 hover:text-neutral-900 dark:hover:text-neutral-100 ${
-              isOfflineReading ? 'font-semibold' : ''
-            }`}
-            style={isOfflineReading ? { color: accentHex } : undefined}
-          >
-            <WifiOff className="w-3.5 h-3.5" />
-            <span>Offline</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => void refreshFeed(storyType)}
-            className="flex items-center gap-1 hover:text-neutral-900 dark:hover:text-neutral-100"
-            style={{ color: accentHex }}
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${bucket.loading ? 'animate-spin' : ''}`} />
-            <span>Aggiorna</span>
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={() => void refreshFeed(storyType)}
+          className="flex items-center gap-1 hover:text-neutral-900 dark:hover:text-neutral-100 cursor-pointer shrink-0"
+          style={{ color: accentHex }}
+        >
+          <RefreshCw className={`w-3.5 h-3.5 ${bucket.loading ? 'animate-spin' : ''}`} />
+          <span>Aggiorna</span>
+        </button>
       </div>
 
       <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto">
@@ -161,40 +122,13 @@ export const StoriesFeed: React.FC<StoriesFeedProps> = ({ storyType }) => {
         {bucket.error && bucket.stories.length === 0 && (
           <div className="py-16 px-6 text-center space-y-3">
             <p className="text-sm text-neutral-500">{bucket.error}</p>
-            <div className="flex items-center justify-center gap-2">
-              <button
-                type="button"
-                onClick={() => void refreshFeed(storyType)}
-                className="px-4 py-1.5 rounded-lg text-white text-xs font-medium"
-                style={{ backgroundColor: accentHex }}
-              >
-                Riprova
-              </button>
-              {!isOfflineReading && (
-                <button
-                  type="button"
-                  onClick={() => toggleOfflineMode(true)}
-                  className="px-4 py-1.5 rounded-lg border border-neutral-200 dark:border-neutral-800 text-xs font-medium"
-                >
-                  Modalità Offline
-                </button>
-              )}
-            </div>
-          </div>
-        )}
-
-        {!bucket.loading && !bucket.error && isOfflineReading && bucket.stories.length === 0 && (
-          <div className="py-16 px-6 text-center space-y-3">
-            <p className="text-sm text-neutral-500">
-              Nessun articolo salvato offline per questa sezione.
-            </p>
             <button
               type="button"
-              onClick={() => toggleOfflineMode(false)}
-              className="px-4 py-1.5 rounded-lg text-white text-xs font-medium"
+              onClick={() => void refreshFeed(storyType)}
+              className="px-4 py-1.5 rounded-lg text-white text-xs font-medium cursor-pointer"
               style={{ backgroundColor: accentHex }}
             >
-              Torna online e scarica
+              Riprova
             </button>
           </div>
         )}
@@ -220,7 +154,7 @@ export const StoriesFeed: React.FC<StoriesFeedProps> = ({ storyType }) => {
         ))}
 
         {/* Pagination */}
-        {bucket.stories.length > 0 && bucket.nextStart !== null && !isOfflineReading && (
+        {bucket.stories.length > 0 && bucket.nextStart !== null && isOnline && (
           <div className="py-5 text-center">
             <button
               type="button"

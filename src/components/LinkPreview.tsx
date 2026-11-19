@@ -2,12 +2,12 @@ import React, { useEffect, useState } from 'react';
 import { Globe } from 'lucide-react';
 import type { Story, WebPreviewInfo } from '../types/tmw';
 import { fetchLinkPreview } from '../services/tmwApi';
+import { offlineDb } from '../services/offlineDb';
 import { storage } from '../services/storage';
 import { getFaviconUrl } from '../utils/formatting';
 
 interface LinkPreviewProps {
   story: Story;
-  isOfflineReading: boolean;
   hasRead: boolean;
   onOpenThread: () => void;
 }
@@ -16,7 +16,6 @@ const memoryPreviewCache = new Map<string, WebPreviewInfo>();
 
 export const LinkPreview: React.FC<LinkPreviewProps> = ({
   story,
-  isOfflineReading,
   hasRead,
   onOpenThread,
 }) => {
@@ -47,11 +46,11 @@ export const LinkPreview: React.FC<LinkPreviewProps> = ({
 
     async function load() {
       setLoading(true);
-      if (isOfflineReading) {
-        const offlineArt = storage.getOfflineArticles()[String(story.id)];
+      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        const offlineArt = await offlineDb.getArticle(story.id);
         const res: WebPreviewInfo = {
           title: story.title,
-          description: offlineArt?.subtitle || offlineArt?.text || story.text || 'Offline cached article',
+          description: offlineArt?.subtitle || offlineArt?.text || story.text || 'Articolo salvato offline',
           image: offlineArt?.image || story.image,
         };
         if (!cancelled) {
@@ -64,7 +63,7 @@ export const LinkPreview: React.FC<LinkPreviewProps> = ({
       const webInfo = story.url ? await fetchLinkPreview(story.url) : {};
       const finalInfo: WebPreviewInfo = {
         title: webInfo.title || story.title,
-        description: story.text || webInfo.description || story.category || 'TUTTOmercatoWEB',
+        description: story.text || webInfo.description || story.category || story.by || 'RSS',
         image: story.image || webInfo.image,
         icon: webInfo.icon,
       };
@@ -83,7 +82,7 @@ export const LinkPreview: React.FC<LinkPreviewProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [cacheKey, info, isOfflineReading, story]);
+  }, [cacheKey, info, story]);
 
   if (loading) {
     return (

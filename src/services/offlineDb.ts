@@ -1,0 +1,249 @@
+import type { Story } from '../types/tmw';
+
+const DB_NAME = 'newsreader_offline_db';
+const DB_VERSION = 1;
+const STORE_FEEDS = 'feeds';
+const STORE_ARTICLES = 'articles';
+const MAX_NON_FAV_ARTICLES = 300;
+
+interface FeedRecord {
+  id: string;
+  stories: Story[];
+  updatedAt: number;
+}
+
+interface ArticleRecord {
+  id: number;
+  story: Story;
+  cachedAt: number;
+}
+
+let dbPromise: Promise<IDBDatabase | null> | null = null;
+
+function openDb(): Promise<IDBDatabase | null> {
+  if (typeof indexedDB === 'undefined') {
+    return Promise.resolve(null);
+  }
+  if (dbPromise) return dbPromise;
+
+  dbPromise = new Promise((resolve) => {
+    try {
+      const request = indexedDB.open(DB_NAME, DB_VERSION);
+      request.onupgradeneeded = () => {
+        const db = request.result;
+        if (!db.objectStoreNames.contains(STORE_FEEDS)) {
+          db.createObjectStore(STORE_FEEDS, { keyPath: 'id' });
+        }
+        if (!db.objectStoreNames.contains(STORE_ARTICLES)) {
+          const store = db.createObjectStore(STORE_ARTICLES, { keyPath: 'id' });
+          store.createIndex('cachedAt', 'cachedAt', { unique: false });
+        }
+      };
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => resolve(null);
+    } catch {
+      resolve(null);
+    }
+  });
+
+  return dbPromise;
+}
+
+function reqToPromise<T>(req: IDBRequest<T>): Promise<T> {
+  return new Promise((resolve, reject) => {
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+function txDone(tx: IDBTransaction): Promise<void> {
+  return new Promise((resolve, reject) => {
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  });
+}
+
+async function pruneOldArticles(protectedIds: Set<number>): Promise<void> {
+  const db = await openDb();
+  if (!db) return;
+  try {
+    const tx = db.transaction(STORE_ARTICLES, 'readwrite');
+    const store = tx.objectStore(STORE_ARTICLES);
+    const all = await reqToPromise(store.getAll() as IDBRequest<ArticleRecord[]>);
+    const nonFavs = all
+      .filter((r) => !protectedIds.has(r.id))
+      .sort((a, b) => b.cachedAt - a.cachedAt);
+    if (nonFavs.length > MAX_NON_FAV_ARTICLES) {
+      for (const rec of nonFavs.slice(MAX_NON_FAV_ARTICLES)) {
+        store.delete(rec.id);
+      }
+    }
+    await txDone(tx);
+  } catch {
+    // Ignore pruning errors
+  }
+}
+
+export const offlineDb = {
+  async getFeedStories(feedId: string): Promise<Story[]> {
+    const db = await openDb();
+    if (!db) return [];
+    try {
+      const tx = db.transaction(STORE_FEEDS, 'readonly');
+      const rec = await reqToPromise(
+        tx.objectStore(STORE_FEEDS).get(feedId) as IDBRequest<FeedRecord | undefined>,
+      );
+      return rec?.stories ?? [];
+    } catch {
+      return [];
+    }
+  },
+
+  async saveFeedStories(feedId: string, stories: Story[]): Promise<void> {
+    const db = await openDb();
+    if (!db) return;
+    try {
+      const tx = db.transaction(STORE_FEEDS, 'readwrite');
+      const record: FeedRecord = {
+        id: feedId,
+        stories: stories.slice(0, 30),
+        updatedAt: Date.now(),
+      };
+      tx.objectStore(STORE_FEEDS).put(record);
+      await txDone(tx);
+    } catch {
+      // Ignore storage errors gracefully
+    }
+  },
+
+  async deleteFeedStories(feedId: string): Promise<void> {
+    const db = await openDb();
+    if (!db) return;
+    try {
+      const tx = db.transaction(STORE_FEEDS, 'readwrite');
+      tx.objectStore(STORE_FEEDS).delete(feedId);
+      await txDone(tx);
+    } catch {
+      // Ignore
+    }
+  },
+
+  async getArticle(id: number): Promise<Story | null> {
+    const db = await openDb();
+    if (!db) return null;
+    try {
+      const tx = db.transaction(STORE_ARTICLES, 'readonly');
+      const rec = await reqToPromise(
+        tx.objectStore(STORE_ARTICLES).get(id) as IDBRequest<ArticleRecord | undefined>,
+      );
+      return rec?.story ?? null;
+    } catch {
+      return null;
+    }
+  },
+
+  async saveArticle(story: Story, protectedIds: Set<number> = new Set()): Promise<void> {
+    const db = await openDb();
+    if (!db) return;
+    try {
+      const tx = db.transaction(STORE_ARTICLES, 'readwrite');
+      const record: ArticleRecord = {
+        id: story.id,
+        story,
+        cachedAt: Date.now(),
+      };
+      tx.objectStore(STORE_ARTICLES).put(record);
+      await txDone(tx);
+      await pruneOldArticles(protectedIds);
+    } catch {
+      // Ignore storage errors gracefully
+    }
+  },
+
+  async getAllFeedStories(): Promise<Story[]> {
+    const db = await openDb();
+    if (!db) return [];
+    try {
+      const tx = db.transaction(STORE_FEEDS, 'readonly');
+      const all = await reqToPromise(
+        tx.objectStore(STORE_FEEDS).getAll() as IDBRequest<FeedRecord[]>,
+      );
+      return all.flatMap((rec) => rec.stories ?? []);
+    } catch {
+      return [];
+    }
+  },
+
+  async getAllArticles(): Promise<Story[]> {
+    const db = await openDb();
+    if (!db) return [];
+    try {
+      const tx = db.transaction(STORE_ARTICLES, 'readonly');
+      const all = await reqToPromise(
+        tx.objectStore(STORE_ARTICLES).getAll() as IDBRequest<ArticleRecord[]>,
+      );
+      return all.map((rec) => rec.story);
+    } catch {
+      return [];
+    }
+  },
+
+  async getOfflineArticleIds(): Promise<number[]> {
+    const db = await openDb();
+    if (!db) return [];
+    try {
+      const tx = db.transaction(STORE_ARTICLES, 'readonly');
+      const keys = await reqToPromise(
+        tx.objectStore(STORE_ARTICLES).getAllKeys() as IDBRequest<IDBValidKey[]>,
+      );
+      return keys.map((k) => Number(k)).filter((n) => Number.isFinite(n));
+    } catch {
+      return [];
+    }
+  },
+
+  async getOfflineArticleCount(): Promise<number> {
+    const db = await openDb();
+    if (!db) return 0;
+    try {
+      const tx = db.transaction(STORE_ARTICLES, 'readonly');
+      return await reqToPromise(tx.objectStore(STORE_ARTICLES).count());
+    } catch {
+      return 0;
+    }
+  },
+
+  async clearOfflineData(protectedFavIds: Set<number>): Promise<number> {
+    const db = await openDb();
+    if (!db) return 0;
+    try {
+      const tx = db.transaction([STORE_FEEDS, STORE_ARTICLES], 'readwrite');
+      tx.objectStore(STORE_FEEDS).clear();
+      const articleStore = tx.objectStore(STORE_ARTICLES);
+      const keys = await reqToPromise(articleStore.getAllKeys() as IDBRequest<IDBValidKey[]>);
+      let remaining = 0;
+      for (const k of keys) {
+        const numKey = Number(k);
+        if (!protectedFavIds.has(numKey)) {
+          articleStore.delete(k);
+        } else {
+          remaining++;
+        }
+      }
+      await txDone(tx);
+      return remaining;
+    } catch {
+      return 0;
+    }
+  },
+
+  clearLegacyLocalStorage(): void {
+    try {
+      localStorage.removeItem('tmw_offline_stories_v1');
+      localStorage.removeItem('tmw_offline_articles_v1');
+    } catch {
+      // Ignore
+    }
+  },
+};

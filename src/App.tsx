@@ -103,15 +103,33 @@ export const App: React.FC = () => {
           <header className="shrink-0 border-b border-neutral-200 dark:border-neutral-800 bg-white/95 dark:bg-neutral-950/95 backdrop-blur">
             <div className="px-3 py-2 flex flex-col gap-2">
               <div className="flex items-center justify-between gap-2">
-                <div className="text-xs font-semibold uppercase tracking-wider text-neutral-400">
-                  Feed &amp; Sezioni
-                </div>
-                <div className="flex items-center gap-1 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (preferences.tabOrder[0]) {
+                      setActiveTab(preferences.tabOrder[0]);
+                    }
+                  }}
+                  disabled={preferences.tabOrder.length === 0}
+                  title="Vai al primo feed"
+                  className="flex items-center gap-2 min-w-0 cursor-pointer disabled:cursor-default hover:opacity-80 transition-opacity text-left"
+                >
+                  <img
+                    src="/pwa-192x192.png"
+                    alt="NewsReader"
+                    className="w-5 h-5 rounded-md object-cover shrink-0"
+                  />
+                  <span className="text-sm font-semibold tracking-wide text-neutral-800 dark:text-neutral-100 truncate">
+                    NewsReader
+                  </span>
+                </button>
+                <div className="flex items-center gap-1.5 shrink-0">
                   <button
                     type="button"
                     onClick={() => updatePreference('themeMode', isDarkActive ? 'light' : 'dark')}
                     title={isDarkActive ? 'Passa al tema chiaro' : 'Passa al tema scuro'}
-                    className="p-1.5 rounded-md bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 text-neutral-700 dark:text-neutral-200 cursor-pointer transition-colors"
+                    aria-label={isDarkActive ? 'Passa al tema chiaro' : 'Passa al tema scuro'}
+                    className="h-8 w-8 rounded-md flex items-center justify-center bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 text-neutral-700 dark:text-neutral-200 cursor-pointer transition-colors"
                   >
                     {isDarkActive ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
                   </button>
@@ -119,25 +137,25 @@ export const App: React.FC = () => {
                     type="button"
                     onClick={() => setAddRssOpen(true)}
                     title="Aggiungi feed RSS / Atom"
-                    className="px-2 py-1 rounded-md text-xs font-medium bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 flex items-center gap-1 text-neutral-700 dark:text-neutral-200 cursor-pointer"
+                    aria-label="Aggiungi feed RSS / Atom"
+                    className="h-8 w-8 rounded-md flex items-center justify-center bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 text-neutral-700 dark:text-neutral-200 cursor-pointer transition-colors"
                   >
-                    <Plus className="w-3.5 h-3.5" />
-                    <span>Aggiungi RSS</span>
+                    <Plus className="w-4 h-4" />
                   </button>
                   <PWAInstallButton compact />
                   <button
                     type="button"
                     onClick={() => setActiveTab('profile')}
-                    title="Search, Favorites & Settings"
-                    className={`px-2.5 py-1 rounded-md flex items-center gap-1 text-xs font-semibold transition-colors cursor-pointer ${
+                    title="Ricerca, Preferiti e Impostazioni"
+                    aria-label="Ricerca, Preferiti e Impostazioni"
+                    className={`h-8 w-8 rounded-md flex items-center justify-center transition-colors cursor-pointer ${
                       activeTab === 'profile'
                         ? 'bg-neutral-900 text-white dark:bg-white dark:text-neutral-900'
                         : 'bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 text-neutral-700 dark:text-neutral-200'
                     }`}
                     style={activeTab === 'profile' ? { backgroundColor: accentHex, color: '#ffffff' } : undefined}
                   >
-                    <SlidersHorizontal className="w-3.5 h-3.5" />
-                    <span>Menu</span>
+                    <SlidersHorizontal className="w-4 h-4" />
                   </button>
                 </div>
               </div>

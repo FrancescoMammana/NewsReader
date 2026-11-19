@@ -26,7 +26,6 @@ import {
   type ThemeMode,
 } from '../types/tmw';
 import { useApp } from '../context/AppContext';
-import { storage } from '../services/storage';
 import { formatTimestamp } from '../utils/formatting';
 import { PWAInstallButton } from './PWAInstallButton';
 import { StoryTile } from './StoryTile';
@@ -64,16 +63,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     preferences,
     updatePreference,
     accentHex,
-    isOfflineReading,
-    toggleOfflineMode,
-    offlineProgress,
-    downloadForOffline,
+    offlineArticleCount,
+    clearOfflineCache,
     clearReadStories,
     filterKeywords,
     addFilterKeyword,
     removeFilterKeyword,
     clearFavs,
-    clearAllCache,
     addCustomFeed,
     removeFeed,
     restoreDefaultTmwFeeds,
@@ -163,43 +159,20 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
   return (
     <div className="flex-1 overflow-y-auto divide-y divide-neutral-200 dark:divide-neutral-800 pb-12">
-      {/* PWA & Offline */}
+      {/* PWA & Offline Cache */}
       <div className="py-1">
-        <div className="px-4 py-3 flex items-center justify-between">
+        <div className="px-4 py-3 flex items-center justify-between gap-3">
           <div>
             <div className="text-sm font-medium flex items-center gap-2">
               <WifiOff className="w-4 h-4 text-neutral-500" />
-              <span>Offline Reading Mode</span>
+              <span>Lettura Offline Automatica</span>
             </div>
             <div className="text-xs text-neutral-500 dark:text-neutral-400">
-              {Object.keys(storage.getOfflineArticles()).length} articoli completi salvati in cache.
+              {offlineArticleCount} articoli completi in cache (ultimi 15 per feed aggiornato +
+              Preferiti).
             </div>
           </div>
-          <input
-            type="checkbox"
-            checked={isOfflineReading}
-            onChange={(e) => toggleOfflineMode(e.target.checked)}
-            className="w-4 h-4 accent-current cursor-pointer"
-            style={{ color: accentHex }}
-          />
         </div>
-
-        <button
-          type="button"
-          disabled={offlineProgress.active}
-          onClick={() => void downloadForOffline()}
-          className="w-full px-4 py-3 flex items-center justify-between hover:bg-neutral-50 dark:hover:bg-neutral-900/60 text-left disabled:opacity-60"
-        >
-          <div>
-            <div className="text-sm font-medium">Download Articles for Offline</div>
-            <div className="text-xs text-neutral-500 dark:text-neutral-400">
-              {offlineProgress.active
-                ? `Downloading ${offlineProgress.current} / ${offlineProgress.total}...`
-                : 'Salva in cache gli ultimi articoli dei feed configurati per la lettura offline.'}
-            </div>
-          </div>
-          <Download className="w-4 h-4" style={{ color: accentHex }} />
-        </button>
 
         <div className="px-4 pb-2">
           <PWAInstallButton />
@@ -574,19 +547,37 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         </button>
         <button
           type="button"
-          onClick={clearFavs}
-          className="w-full px-4 py-3 flex items-center justify-between hover:bg-neutral-50 dark:hover:bg-neutral-900/60 text-left text-red-600 dark:text-red-400"
+          onClick={() => void clearOfflineCache()}
+          className="w-full px-4 py-3 flex items-center justify-between hover:bg-neutral-50 dark:hover:bg-neutral-900/60 text-left"
         >
-          <span>Clear Favorites</span>
-          <Trash2 className="w-4 h-4" />
+          <div>
+            <div>Svuota articoli offline</div>
+            <div className="text-xs text-neutral-500 dark:text-neutral-400">
+              Rimuove le copie salvate in cache mantenendo i Preferiti
+            </div>
+          </div>
+          <Trash2 className="w-4 h-4 text-neutral-500" />
         </button>
         <button
           type="button"
-          onClick={clearAllCache}
+          onClick={clearReadStories}
           className="w-full px-4 py-3 flex items-center justify-between hover:bg-neutral-50 dark:hover:bg-neutral-900/60 text-left"
         >
-          <span>Clear Cache</span>
+          <div>
+            <div>Azzera articoli letti</div>
+            <div className="text-xs text-neutral-500 dark:text-neutral-400">
+              Ripristina lo stato non letto per tutti gli articoli
+            </div>
+          </div>
           <Trash2 className="w-4 h-4 text-neutral-500" />
+        </button>
+        <button
+          type="button"
+          onClick={clearFavs}
+          className="w-full px-4 py-3 flex items-center justify-between hover:bg-neutral-50 dark:hover:bg-neutral-900/60 text-left text-red-600 dark:text-red-400"
+        >
+          <span>Svuota preferiti</span>
+          <Trash2 className="w-4 h-4" />
         </button>
         <button
           type="button"
@@ -596,7 +587,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           <div>
             <div>About</div>
             <div className="text-xs text-neutral-500 dark:text-neutral-400">
-              TMW Reader · TUTTOmercatoWEB
+              NewsReader · RSS &amp; News PWA
             </div>
           </div>
           <Info className="w-4 h-4 text-neutral-500" />

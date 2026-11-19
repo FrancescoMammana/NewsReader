@@ -21,8 +21,6 @@ const KEYS = {
   LAST_READ_STORY: 'tmw_last_read_story_v1',
   NOTES: 'tmw_article_notes_v1',
   DRAFTS: 'tmw_drafts_v1',
-  OFFLINE_STORIES: 'tmw_offline_stories_v1',
-  OFFLINE_ARTICLES: 'tmw_offline_articles_v1',
   PREVIEW_CACHE: 'tmw_preview_cache_v1',
 };
 
@@ -221,21 +219,6 @@ export const storage = {
     writeJson(KEYS.DRAFTS, drafts);
   },
 
-  getOfflineStories(): Record<string, Story[]> {
-    return readJson<Record<string, Story[]>>(KEYS.OFFLINE_STORIES, {});
-  },
-  saveOfflineStories(map: Record<string, Story[]>): void {
-    writeJson(KEYS.OFFLINE_STORIES, map);
-  },
-
-  getOfflineArticles(): Record<string, Story> {
-    return readJson<Record<string, Story>>(KEYS.OFFLINE_ARTICLES, {});
-  },
-  saveOfflineArticles(map: Record<string, Story>): void {
-    const entries = Object.entries(map).slice(-120);
-    writeJson(KEYS.OFFLINE_ARTICLES, Object.fromEntries(entries));
-  },
-
   getPreviewCache(): Record<string, WebPreviewInfo> {
     return readJson<Record<string, WebPreviewInfo>>(KEYS.PREVIEW_CACHE, {});
   },
@@ -244,10 +227,7 @@ export const storage = {
     writeJson(KEYS.PREVIEW_CACHE, Object.fromEntries(entries));
   },
 
-  clearCache(): void {
-    localStorage.removeItem(KEYS.OFFLINE_STORIES);
-    localStorage.removeItem(KEYS.OFFLINE_ARTICLES);
+  clearPreviews(): void {
     localStorage.removeItem(KEYS.PREVIEW_CACHE);
-    localStorage.removeItem(KEYS.READ_STORY_IDS);
   },
 };
