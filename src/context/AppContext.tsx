@@ -216,9 +216,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     ) => {
       const id = toastCounter.current++;
       setToasts((prev) => [...prev.slice(-2), { id, text, ...opts }]);
+      const duration = opts?.variant === 'error' ? 7500 : 3600;
       setTimeout(() => {
         setToasts((prev) => prev.filter((t) => t.id !== id));
-      }, 3600);
+      }, duration);
     },
     [],
   );
@@ -947,7 +948,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         if (missingUrls.length > 0) {
           const queue = [...missingUrls];
           const workers = Math.min(4, queue.length);
-          await Promise.all(
+          const fetchAllMissing = Promise.all(
             Array.from({ length: workers }, async () => {
               while (queue.length > 0) {
                 const story = queue.shift();
@@ -971,6 +972,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               }
             }),
           );
+          await Promise.race([
+            fetchAllMissing,
+            new Promise<void>((resolve) => setTimeout(resolve, 4500)),
+          ]);
           void refreshOfflineIds();
         }
 

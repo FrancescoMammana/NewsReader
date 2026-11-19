@@ -1139,7 +1139,7 @@ app.post('/api/podcast/generate', async (req: Request, res: Response) => {
         thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
         systemInstruction:
           'Sei un giornalista radiofonico professionista di lingua madre italiana. Ricevi fino a 15 articoli che possono essere scritti in qualsiasi lingua (italiano, inglese, spagnolo, francese, tedesco, portoghese o altre) e devi tradurre, rielaborare e sintetizzare TUTTE le notizie in un unico bollettino audio scorrevole in ITALIANO perfetto. ' +
-          'Lunghezza complessiva tra 420 e 650 parole (circa 3-4 minuti di lettura naturale), dando risalto ai fatti principali e raggruppando con transizioni fluide le notizie correlate. ' +
+          'Lunghezza complessiva compatta tra 300 e 450 parole (circa 2-3 minuti di lettura naturale), dando risalto ai fatti principali e raggruppando con transizioni fluide le notizie correlate. ' +
           'Regole rigorose per il testo parlato: SOLO prosa naturale pronta per essere letta ad alta voce da uno speaker; NON includere mai URL, domini web, simboli markdown (*, **, #, >), elenchi puntati, parentesi tecniche o emoji. Scrivi eventuali sigle inglesi o nomi stranieri in forma chiara e scorrevole per una lettura italiana.',
         responseMimeType: 'application/json',
         responseSchema: {
@@ -1185,7 +1185,12 @@ app.post('/api/podcast/generate', async (req: Request, res: Response) => {
       },
     });
 
-    const rawJson = (scriptResponse.text ?? '').trim();
+    const rawJson = (scriptResponse.text ?? '')
+      .trim()
+      .replace(/^```json\s*/i, '')
+      .replace(/^```\s*/i, '')
+      .replace(/```$/i, '')
+      .trim();
     if (!rawJson) {
       res.status(502).json({ error: 'Risposta vuota dal modello di scrittura del copione.' });
       return;
@@ -1221,7 +1226,7 @@ app.post('/api/podcast/generate', async (req: Request, res: Response) => {
       return;
     }
 
-    const ttsChunks = splitScriptForTts(fullScript, 2100);
+    const ttsChunks = splitScriptForTts(fullScript, 3400);
     const wavBuffers: Buffer[] = [];
 
     for (const chunkText of ttsChunks) {
@@ -1271,11 +1276,21 @@ app.post('/api/podcast/generate', async (req: Request, res: Response) => {
     const errAny = err as { status?: number; message?: string };
     const status = typeof errAny?.status === 'number' ? errAny.status : 500;
     const rawMsg = typeof errAny?.message === 'string' ? errAny.message : '';
-    console.error('[podcast/generate]', status, rawMsg);
+    let detail = rawMsg;
+    try {
+      const parsedErr = JSON.parse(rawMsg) as { error?: { message?: string; status?: string } };
+      if (parsedErr?.error?.message) {
+        detail = parsedErr.error.message;
+      }
+    } catch {
+      // rawMsg is plain text
+    }
+    detail = detail.slice(0, 180).trim();
+    console.error('[podcast/generate]', status, detail || rawMsg);
 
     if (status === 429 || rawMsg.includes('RESOURCE_EXHAUSTED')) {
       res.status(429).json({
-        error: 'Quota gratuita Gemini temporaneamente esaurita: riprova tra qualche minuto.',
+        error: 'Quota gratuita Gemini temporaneamente esaurita (429): attendi 1 minuto e riprova.',
       });
       return;
     }
@@ -1286,18 +1301,25 @@ app.post('/api/podcast/generate', async (req: Request, res: Response) => {
       rawMsg.includes('PERMISSION_DENIED')
     ) {
       res.status(403).json({
-        error: 'Chiave GEMINI_API_KEY sul server non valida o non autorizzata.',
+        error:
+          'Chiave GEMINI_API_KEY non valida o bloccata per chiamate da server esterno (403). Crea una nuova chiave gratuita su Google AI Studio senza restrizioni di dominio.',
+      });
+      return;
+    }
+    if (status === 404 || rawMsg.includes('NOT_FOUND')) {
+      res.status(502).json({
+        error: `Modello AI non disponibile per questa chiave (404)${detail ? `: ${detail}` : ''}`,
       });
       return;
     }
     if (status === 400) {
       res.status(400).json({
-        error: `Richiesta AI non valida: ${rawMsg || 'controlla i parametri'}`,
+        error: `Richiesta AI non valida (400)${detail ? `: ${detail}` : ''}`,
       });
       return;
     }
     res.status(502).json({
-      error: 'Errore nella generazione del podcast AI. Riprova tra poco.',
+      error: `Errore nella generazione del podcast AI (${status})${detail ? `: ${detail}` : ''}`,
     });
   }
 });
@@ -1312,7 +1334,7 @@ async function startServer() {
   } else {
     const { createServer } = await import('vite');
     const vite = await createServer({
-      server: { middlewareMode: true, hmr: false },
+      server: { middlewareMode: true, hmr: false, ws: false },
       appType: 'spa',
     });
     app.use(vite.middlewares);

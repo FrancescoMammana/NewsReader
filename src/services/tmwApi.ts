@@ -89,11 +89,21 @@ export async function generatePodcastApi(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ feedLabel, articles }),
   });
-  const data = (await res.json().catch(() => ({}))) as Partial<GeneratePodcastResponse> & {
-    error?: string;
-  };
+  const rawText = await res.text();
+  let data: Partial<GeneratePodcastResponse> & { error?: string } = {};
+  try {
+    data = JSON.parse(rawText) as Partial<GeneratePodcastResponse> & { error?: string };
+  } catch {
+    if (!res.ok) {
+      throw new Error(
+        res.status === 502 || res.status === 504
+          ? `Timeout o risposta non valida dal server (${res.status}). Riprova tra poco.`
+          : `Errore HTTP ${res.status} dal server durante la creazione del podcast.`,
+      );
+    }
+  }
   if (!res.ok || !data.audioBase64 || !data.episodeTitle || !data.script) {
-    throw new Error(data.error || 'Impossibile generare il podcast AI in questo momento.');
+    throw new Error(data.error || `Impossibile generare il podcast AI (HTTP ${res.status}).`);
   }
   return {
     episodeTitle: data.episodeTitle,
