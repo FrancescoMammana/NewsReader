@@ -1,4 +1,5 @@
 import type {
+  PodcastSegment,
   Story,
   StoryType,
   WebPreviewInfo,
@@ -49,3 +50,58 @@ export async function fetchLinkPreview(url: string): Promise<WebPreviewInfo> {
     return {};
   }
 }
+
+export interface PodcastArticleInput {
+  id: number;
+  title: string;
+  by?: string;
+  category?: string;
+  subtitle?: string;
+  text?: string;
+}
+
+export interface GeneratePodcastResponse {
+  episodeTitle: string;
+  script: string;
+  segments: PodcastSegment[];
+  audioBase64: string;
+  mimeType: string;
+  generatedAt: number;
+}
+
+export async function fetchPodcastStatus(): Promise<boolean> {
+  try {
+    const res = await fetch('/api/podcast/status');
+    if (!res.ok) return false;
+    const data = (await res.json()) as { available?: boolean };
+    return Boolean(data.available);
+  } catch {
+    return false;
+  }
+}
+
+export async function generatePodcastApi(
+  feedLabel: string,
+  articles: PodcastArticleInput[],
+): Promise<GeneratePodcastResponse> {
+  const res = await fetch('/api/podcast/generate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ feedLabel, articles }),
+  });
+  const data = (await res.json().catch(() => ({}))) as Partial<GeneratePodcastResponse> & {
+    error?: string;
+  };
+  if (!res.ok || !data.audioBase64 || !data.episodeTitle || !data.script) {
+    throw new Error(data.error || 'Impossibile generare il podcast AI in questo momento.');
+  }
+  return {
+    episodeTitle: data.episodeTitle,
+    script: data.script,
+    segments: Array.isArray(data.segments) ? data.segments : [],
+    audioBase64: data.audioBase64,
+    mimeType: data.mimeType || 'audio/wav',
+    generatedAt: typeof data.generatedAt === 'number' ? data.generatedAt : Date.now(),
+  };
+}
+

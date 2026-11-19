@@ -223,3 +223,22 @@ export interface ToastMessage {
   actionLabel?: string;
   onAction?: () => void;
 }
+
+export interface PodcastSegment {
+  storyId: number;
+  headline: string;
+  spokenText: string;
+}
+
+export interface PodcastEpisode {
+  feedId: string;
+  feedLabel: string;
+  episodeTitle: string;
+  script: string;
+  segments: PodcastSegment[];
+  storyIds: number[];
+  storiesSignature: string;
+  audioBlob: Blob;
+  generatedAt: number;
+}
+

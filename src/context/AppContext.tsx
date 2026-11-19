@@ -13,12 +13,19 @@ import {
   DEFAULT_CONFIGURED_FEEDS,
   type Item,
   type ItemScreenArgs,
+  type PodcastEpisode,
   type Preferences,
   type Story,
   type StoryType,
   type ToastMessage,
 } from '../types/tmw';
-import { fetchCustomRssFeed, fetchTmwArticle, fetchTmwFeed } from '../services/tmwApi';
+import {
+  fetchCustomRssFeed,
+  fetchPodcastStatus,
+  fetchTmwArticle,
+  fetchTmwFeed,
+  generatePodcastApi,
+} from '../services/tmwApi';
 import { offlineDb } from '../services/offlineDb';
 import { storage } from '../services/storage';
 import { shouldHideByKeywords } from '../utils/formatting';
@@ -121,6 +128,13 @@ interface AppContextValue {
     opts?: { variant?: 'default' | 'error' | 'success'; actionLabel?: string; onAction?: () => void },
   ) => void;
   dismissToast: (id: number) => void;
+
+  // AI Podcast
+  podcastAvailable: boolean;
+  activePodcast: PodcastEpisode | null;
+  podcastGeneratingForFeed: string | null;
+  generateFeedPodcast: (feedId: StoryType, forceRegenerate?: boolean) => Promise<void>;
+  closePodcastPlayer: () => void;
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
@@ -860,6 +874,157 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const [userDialogUsername, setUserDialogUsername] = useState<string | null>(null);
 
+  // AI Podcast (server availability check + IndexedDB cache)
+  const [podcastAvailable, setPodcastAvailable] = useState(false);
+  const [activePodcast, setActivePodcast] = useState<PodcastEpisode | null>(null);
+  const [podcastGeneratingForFeed, setPodcastGeneratingForFeed] = useState<string | null>(null);
+  const podcastBusyRef = useRef(false);
+
+  useEffect(() => {
+    let active = true;
+    void fetchPodcastStatus().then((available) => {
+      if (active) setPodcastAvailable(available);
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const closePodcastPlayer = useCallback(() => {
+    setActivePodcast(null);
+  }, []);
+
+  const generateFeedPodcast = useCallback(
+    async (feedId: StoryType, forceRegenerate = false) => {
+      if (!podcastAvailable || podcastBusyRef.current) return;
+
+      const bucket = feedsRef.current[feedId];
+      const targetStories = (bucket?.stories ?? []).filter((s) => !s.hidden).slice(0, 15);
+      if (targetStories.length === 0) {
+        showToast('Nessun articolo disponibile in questa sezione per il podcast.', {
+          variant: 'error',
+        });
+        return;
+      }
+
+      const storiesSignature = targetStories.map((s) => s.id).join(',');
+      if (!forceRegenerate) {
+        const cached = await offlineDb.getPodcast(feedId);
+        if (cached && cached.storiesSignature === storiesSignature && cached.audioBlob) {
+          setActivePodcast(cached);
+          return;
+        }
+      }
+
+      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        showToast('Connessione assente: impossibile generare un nuovo podcast AI.', {
+          variant: 'error',
+        });
+        return;
+      }
+
+      podcastBusyRef.current = true;
+      setPodcastGeneratingForFeed(feedId);
+
+      try {
+        // Retrieve full cached article texts (and fetch any missing ones online)
+        const enrichedArticles = new Map<number, Story>();
+        await Promise.all(
+          targetStories.map(async (s) => {
+            const cached = await offlineDb.getArticle(s.id, s.url);
+            if (cached) {
+              enrichedArticles.set(s.id, cached);
+            }
+          }),
+        );
+
+        const missingUrls = targetStories.filter((s) => {
+          const cached = enrichedArticles.get(s.id);
+          const bestText = cached?.text || s.text || '';
+          return Boolean(s.url) && bestText.length < 180;
+        });
+
+        if (missingUrls.length > 0) {
+          const queue = [...missingUrls];
+          const workers = Math.min(4, queue.length);
+          await Promise.all(
+            Array.from({ length: workers }, async () => {
+              while (queue.length > 0) {
+                const story = queue.shift();
+                if (!story?.url) continue;
+                const full = await fetchTmwArticle(story.url).catch(() => null);
+                if (full) {
+                  const merged: Story = {
+                    ...story,
+                    ...full,
+                    id: story.id,
+                    url: story.url || full.url,
+                    title: full.title || story.title,
+                    text:
+                      (full.text || '').length >= (story.text || '').length
+                        ? full.text
+                        : story.text,
+                  };
+                  enrichedArticles.set(story.id, merged);
+                  await offlineDb.saveArticle(merged, favIdSetRef.current);
+                }
+              }
+            }),
+          );
+          void refreshOfflineIds();
+        }
+
+        const feedObj = configuredFeedsRef.current.find((f) => f.id === feedId);
+        const feedLabel = feedObj ? feedObj.label : feedId;
+        const payloadArticles = targetStories.map((s) => {
+          const full = enrichedArticles.get(s.id);
+          return {
+            id: s.id,
+            title: full?.title || s.title,
+            by: full?.by || s.by,
+            category: full?.category || s.category,
+            subtitle: full?.subtitle || s.subtitle,
+            text: full?.text || s.text || s.subtitle || '',
+          };
+        });
+
+        const generated = await generatePodcastApi(feedLabel, payloadArticles);
+        const binaryStr = atob(generated.audioBase64);
+        const bytes = new Uint8Array(binaryStr.length);
+        for (let i = 0; i < binaryStr.length; i++) {
+          bytes[i] = binaryStr.charCodeAt(i);
+        }
+        const audioBlob = new Blob([bytes], { type: generated.mimeType || 'audio/wav' });
+
+        const episode: PodcastEpisode = {
+          feedId,
+          feedLabel,
+          episodeTitle: generated.episodeTitle,
+          script: generated.script,
+          segments: generated.segments,
+          storyIds: targetStories.map((s) => s.id),
+          storiesSignature,
+          audioBlob,
+          generatedAt: generated.generatedAt,
+        };
+
+        await offlineDb.savePodcast(episode);
+        setActivePodcast(episode);
+        showToast('Podcast in italiano pronto!', { variant: 'success' });
+      } catch (err) {
+        const msg =
+          err instanceof Error && err.message
+            ? err.message
+            : 'Errore nella creazione del podcast AI.';
+        showToast(msg, { variant: 'error' });
+      } finally {
+        podcastBusyRef.current = false;
+        setPodcastGeneratingForFeed(null);
+      }
+    },
+    [podcastAvailable, refreshOfflineIds, showToast],
+  );
+
   const value: AppContextValue = {
     preferences,
     updatePreference,
@@ -913,6 +1078,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     toasts,
     showToast,
     dismissToast,
+    podcastAvailable,
+    activePodcast,
+    podcastGeneratingForFeed,
+    generateFeedPodcast,
+    closePodcastPlayer,
   };
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

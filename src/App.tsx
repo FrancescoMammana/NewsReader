@@ -12,6 +12,7 @@ import {
 } from './components/Modals';
 import { ProfileView } from './components/ProfileView';
 import { OfflineIndicator, PWAInstallButton } from './components/PWAInstallButton';
+import { PodcastPlayer } from './components/PodcastPlayer';
 import { StoriesFeed } from './components/StoriesFeed';
 
 const FONT_STACK: Record<FontOption, string> = {
@@ -87,9 +88,10 @@ export const App: React.FC = () => {
 
   return (
     <div
-      className={`h-screen w-screen overflow-hidden flex ${surfaceClass}`}
+      className={`h-screen w-screen overflow-hidden flex flex-col ${surfaceClass}`}
       style={{ fontFamily: FONT_STACK[preferences.font] }}
     >
+      <div className="flex-1 min-h-0 flex overflow-hidden">
       {/* Left Pane: Tab Bar + Stories Feed / Profile */}
       {showLeftPane && (
         <aside
@@ -251,6 +253,9 @@ export const App: React.FC = () => {
           )}
         </main>
       )}
+      </div>
+
+      <PodcastPlayer />
 
       {/* Global Modals, Offline Status & Toasts */}
       <AddRssFeedModal open={addRssOpen} onClose={() => setAddRssOpen(false)} />

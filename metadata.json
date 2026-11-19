@@ -1,5 +1,8 @@
 {
   "name": "TMW Reader",
   "description": "Split-view PWA reader for tuttomercatoweb.com with Serie A, Esteri, Serie B, Editoriali, full articles, search, offline reading, and customizable typography.",
-  "requestFramePermissions": []
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
 }

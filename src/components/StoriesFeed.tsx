@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { RefreshCw, WifiOff, X } from 'lucide-react';
+import { Headphones, Loader2, RefreshCw, WifiOff, X } from 'lucide-react';
 import type { Story, StoryType } from '../types/tmw';
 import { EMPTY_FEED_BUCKET, useApp } from '../context/AppContext';
 import { useOnlineStatus } from '../hooks/usePWAInstall';
@@ -25,8 +25,13 @@ export const StoriesFeed: React.FC<StoriesFeedProps> = ({ storyType }) => {
     markStoryRead,
     selectedItemArgs,
     openItem,
+    podcastAvailable,
+    podcastGeneratingForFeed,
+    generateFeedPodcast,
   } = useApp();
   const isOnline = useOnlineStatus();
+  const isGeneratingThisPodcast = podcastGeneratingForFeed === storyType;
+  const isAnyPodcastGenerating = podcastGeneratingForFeed !== null;
 
   const bucket = feeds[storyType] ?? EMPTY_FEED_BUCKET;
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -109,15 +114,34 @@ export const StoriesFeed: React.FC<StoriesFeedProps> = ({ storyType }) => {
       {/* Feed Action Bar */}
       <div className="px-3.5 py-1.5 border-b border-neutral-200/70 dark:border-neutral-800/80 flex items-center justify-between gap-2 text-xs text-neutral-500">
         <span className="tabular-nums truncate">{visibleCount} articoli</span>
-        <button
-          type="button"
-          onClick={() => void refreshFeed(storyType)}
-          className="flex items-center gap-1 hover:text-neutral-900 dark:hover:text-neutral-100 cursor-pointer shrink-0"
-          style={{ color: accentHex }}
-        >
-          <RefreshCw className={`w-3.5 h-3.5 ${bucket.loading ? 'animate-spin' : ''}`} />
-          <span>Aggiorna</span>
-        </button>
+        <div className="flex items-center gap-3 shrink-0">
+          {podcastAvailable && (
+            <button
+              type="button"
+              disabled={isAnyPodcastGenerating || visibleCount === 0}
+              onClick={() => void generateFeedPodcast(storyType)}
+              title="Ascolta il podcast AI in italiano degli ultimi 15 articoli"
+              className="flex items-center gap-1 hover:text-neutral-900 dark:hover:text-neutral-100 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shrink-0 font-medium"
+              style={{ color: accentHex }}
+            >
+              {isGeneratingThisPodcast ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <Headphones className="w-3.5 h-3.5" />
+              )}
+              <span>{isGeneratingThisPodcast ? 'Creazione...' : 'Podcast'}</span>
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => void refreshFeed(storyType)}
+            className="flex items-center gap-1 hover:text-neutral-900 dark:hover:text-neutral-100 cursor-pointer shrink-0"
+            style={{ color: accentHex }}
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${bucket.loading ? 'animate-spin' : ''}`} />
+            <span>Aggiorna</span>
+          </button>
+        </div>
       </div>
 
       <div

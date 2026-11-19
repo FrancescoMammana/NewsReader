@@ -1,10 +1,39 @@
 import express, { type Request, type Response } from 'express';
 import * as cheerio from 'cheerio';
+import { GoogleGenAI, ThinkingLevel, Type } from '@google/genai';
+import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+// Load optional .env file for local self-hosting without overriding cloud/system env vars
+const localEnvPath = path.resolve(__dirname, '.env');
+if (fs.existsSync(localEnvPath)) {
+  try {
+    const rawEnv = fs.readFileSync(localEnvPath, 'utf8');
+    for (const line of rawEnv.split(/\r?\n/)) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) continue;
+      const eqIdx = trimmed.indexOf('=');
+      if (eqIdx <= 0) continue;
+      const key = trimmed.slice(0, eqIdx).trim();
+      let val = trimmed.slice(eqIdx + 1).trim();
+      if (
+        (val.startsWith('"') && val.endsWith('"')) ||
+        (val.startsWith("'") && val.endsWith("'"))
+      ) {
+        val = val.slice(1, -1);
+      }
+      if (key && !(key in process.env)) {
+        process.env[key] = val;
+      }
+    }
+  } catch {
+    // Ignore unreadable .env file
+  }
+}
 
 const app = express();
 const isDev = process.env.NODE_ENV === 'development';
@@ -919,6 +948,357 @@ app.get('/api/link-preview', async (req: Request, res: Response) => {
     res.json(info);
   } catch {
     res.json({ fetchedAt: Date.now() });
+  }
+});
+
+function getGeminiClient(): GoogleGenAI | null {
+  const apiKey = process.env.GEMINI_API_KEY?.trim();
+  if (!apiKey) return null;
+  return new GoogleGenAI({
+    apiKey,
+    apiVersion: 'v1beta',
+    httpOptions: {
+      headers: {
+        'User-Agent': 'aistudio-build',
+      },
+    },
+  });
+}
+
+function cleanArticleTextForPodcast(raw: string): string {
+  return raw
+    .replace(/https?:\/\/\S+/gi, '')
+    .replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/^>\s*/gm, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function splitScriptForTts(script: string, maxChars = 2100): string[] {
+  const paragraphs = script
+    .split(/\n{2,}/)
+    .map((p) => p.trim())
+    .filter(Boolean);
+  if (paragraphs.length === 0) return [];
+
+  const chunks: string[] = [];
+  let current = '';
+
+  for (const para of paragraphs) {
+    if (para.length > maxChars) {
+      if (current) {
+        chunks.push(current);
+        current = '';
+      }
+      const sentences = para.split(/(?<=[.!?])\s+/);
+      let sub = '';
+      for (const sentence of sentences) {
+        if (sub && sub.length + sentence.length + 1 > maxChars) {
+          chunks.push(sub);
+          sub = sentence;
+        } else {
+          sub = sub ? `${sub} ${sentence}` : sentence;
+        }
+      }
+      if (sub) chunks.push(sub);
+      continue;
+    }
+
+    if (current && current.length + para.length + 2 > maxChars) {
+      chunks.push(current);
+      current = para;
+    } else {
+      current = current ? `${current}\n\n${para}` : para;
+    }
+  }
+
+  if (current) chunks.push(current);
+  return chunks;
+}
+
+function parseWavHeader(buf: Buffer): { headerPrefix: Buffer; pcmData: Buffer; dataSizeOffset: number } | null {
+  if (buf.length < 44) return null;
+  if (buf.toString('ascii', 0, 4) !== 'RIFF' || buf.toString('ascii', 8, 12) !== 'WAVE') {
+    return null;
+  }
+  let offset = 12;
+  while (offset + 8 <= buf.length) {
+    const chunkId = buf.toString('ascii', offset, offset + 4);
+    const chunkSize = buf.readUInt32LE(offset + 4);
+    if (chunkId === 'data') {
+      const dataStart = offset + 8;
+      const dataEnd = Math.min(buf.length, dataStart + chunkSize);
+      return {
+        headerPrefix: buf.subarray(0, dataStart),
+        pcmData: buf.subarray(dataStart, dataEnd),
+        dataSizeOffset: offset + 4,
+      };
+    }
+    offset += 8 + chunkSize + (chunkSize % 2);
+  }
+  return null;
+}
+
+function mergeWavBuffers(buffers: Buffer[]): Buffer {
+  if (buffers.length === 0) return Buffer.alloc(0);
+  if (buffers.length === 1) return buffers[0];
+
+  const firstParsed = parseWavHeader(buffers[0]);
+  if (!firstParsed) {
+    return Buffer.concat(buffers);
+  }
+
+  const pcmParts: Buffer[] = [firstParsed.pcmData];
+  for (let i = 1; i < buffers.length; i++) {
+    const parsed = parseWavHeader(buffers[i]);
+    if (parsed) {
+      pcmParts.push(parsed.pcmData);
+    } else if (buffers[i].length > 44) {
+      pcmParts.push(buffers[i].subarray(44));
+    }
+  }
+
+  const combinedPcm = Buffer.concat(pcmParts);
+  const header = Buffer.from(firstParsed.headerPrefix);
+  header.writeUInt32LE(header.length - 8 + combinedPcm.length, 4);
+  header.writeUInt32LE(combinedPcm.length, firstParsed.dataSizeOffset);
+  return Buffer.concat([header, combinedPcm]);
+}
+
+interface PodcastInputArticle {
+  id?: unknown;
+  title?: unknown;
+  by?: unknown;
+  category?: unknown;
+  subtitle?: unknown;
+  text?: unknown;
+}
+
+interface GeneratedScriptPayload {
+  episodeTitle?: string;
+  intro?: string;
+  segments?: Array<{
+    storyId?: number;
+    headline?: string;
+    spokenText?: string;
+  }>;
+  outro?: string;
+}
+
+app.get('/api/podcast/status', (_req: Request, res: Response) => {
+  res.json({ available: Boolean(process.env.GEMINI_API_KEY?.trim()) });
+});
+
+app.post('/api/podcast/generate', async (req: Request, res: Response) => {
+  const ai = getGeminiClient();
+  if (!ai) {
+    res.status(503).json({
+      error: 'Servizio Podcast AI non attivo: imposta GEMINI_API_KEY nelle variabili ambiente del server.',
+    });
+    return;
+  }
+
+  const body = req.body as { feedLabel?: unknown; articles?: unknown };
+  const feedLabel =
+    typeof body?.feedLabel === 'string' && body.feedLabel.trim()
+      ? body.feedLabel.trim().slice(0, 80)
+      : 'Notiziario';
+  const rawArticles = Array.isArray(body?.articles) ? (body.articles as PodcastInputArticle[]) : [];
+
+  const articles = rawArticles
+    .slice(0, 15)
+    .map((art, idx) => {
+      const id = typeof art.id === 'number' && Number.isFinite(art.id) ? art.id : idx + 1;
+      const title = typeof art.title === 'string' ? cleanArticleTextForPodcast(art.title) : '';
+      const by = typeof art.by === 'string' ? cleanArticleTextForPodcast(art.by) : '';
+      const category = typeof art.category === 'string' ? cleanArticleTextForPodcast(art.category) : '';
+      const subtitle = typeof art.subtitle === 'string' ? cleanArticleTextForPodcast(art.subtitle) : '';
+      const text = typeof art.text === 'string' ? cleanArticleTextForPodcast(art.text) : '';
+      const bodySnippet = (text || subtitle).slice(0, 1200);
+      return { id, title, by, category, bodySnippet };
+    })
+    .filter((a) => a.title.length > 0);
+
+  if (articles.length === 0) {
+    res.status(400).json({ error: 'Nessun articolo valido disponibile per creare il podcast.' });
+    return;
+  }
+
+  try {
+    const articlesPromptBlock = articles
+      .map(
+        (a, index) =>
+          `[${index + 1}] ID: ${a.id}\nTitolo: ${a.title}\nFonte/Categoria: ${a.category || a.by || feedLabel}\nContenuto: ${a.bodySnippet || a.title}`,
+      )
+      .join('\n\n---\n\n');
+
+    const scriptResponse = await ai.models.generateContent({
+      model: 'gemini-4-hydrogen',
+      contents: `Prepara una rassegna stampa audio in italiano per la sezione "${feedLabel}" basata su questi ${articles.length} articoli:\n\n${articlesPromptBlock}`,
+      config: {
+        thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+        systemInstruction:
+          'Sei un giornalista radiofonico professionista di lingua madre italiana. Ricevi fino a 15 articoli che possono essere scritti in qualsiasi lingua (italiano, inglese, spagnolo, francese, tedesco, portoghese o altre) e devi tradurre, rielaborare e sintetizzare TUTTE le notizie in un unico bollettino audio scorrevole in ITALIANO perfetto. ' +
+          'Lunghezza complessiva tra 420 e 650 parole (circa 3-4 minuti di lettura naturale), dando risalto ai fatti principali e raggruppando con transizioni fluide le notizie correlate. ' +
+          'Regole rigorose per il testo parlato: SOLO prosa naturale pronta per essere letta ad alta voce da uno speaker; NON includere mai URL, domini web, simboli markdown (*, **, #, >), elenchi puntati, parentesi tecniche o emoji. Scrivi eventuali sigle inglesi o nomi stranieri in forma chiara e scorrevole per una lettura italiana.',
+        responseMimeType: 'application/json',
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            episodeTitle: {
+              type: Type.STRING,
+              description: 'Titolo breve dell episodio del podcast in italiano.',
+            },
+            intro: {
+              type: Type.STRING,
+              description: 'Breve apertura da speaker radiofonico in italiano (1-2 frasi).',
+            },
+            segments: {
+              type: Type.ARRAY,
+              description: 'Segmenti del notiziario in italiano corrispondenti agli articoli forniti.',
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  storyId: {
+                    type: Type.INTEGER,
+                    description: 'ID numerico originale dell articolo.',
+                  },
+                  headline: {
+                    type: Type.STRING,
+                    description: 'Titolo sintetico della notizia tradotto in italiano.',
+                  },
+                  spokenText: {
+                    type: Type.STRING,
+                    description: 'Testo parlato in italiano fluido per questa notizia (2-4 frasi).',
+                  },
+                },
+                required: ['storyId', 'headline', 'spokenText'],
+              },
+            },
+            outro: {
+              type: Type.STRING,
+              description: 'Breve chiusura finale da speaker radiofonico in italiano (1-2 frasi).',
+            },
+          },
+          required: ['episodeTitle', 'intro', 'segments', 'outro'],
+        },
+      },
+    });
+
+    const rawJson = (scriptResponse.text ?? '').trim();
+    if (!rawJson) {
+      res.status(502).json({ error: 'Risposta vuota dal modello di scrittura del copione.' });
+      return;
+    }
+
+    const parsed = JSON.parse(rawJson) as GeneratedScriptPayload;
+    const validIds = new Set(articles.map((a) => a.id));
+    const segments = (Array.isArray(parsed.segments) ? parsed.segments : [])
+      .filter((s) => typeof s?.spokenText === 'string' && s.spokenText.trim().length > 0)
+      .map((s, idx) => ({
+        storyId:
+          typeof s.storyId === 'number' && validIds.has(s.storyId)
+            ? s.storyId
+            : articles[Math.min(idx, articles.length - 1)].id,
+        headline: cleanArticleTextForPodcast(
+          typeof s.headline === 'string' && s.headline.trim()
+            ? s.headline
+            : articles[Math.min(idx, articles.length - 1)].title,
+        ),
+        spokenText: cleanArticleTextForPodcast(s.spokenText ?? ''),
+      }));
+
+    const intro = cleanArticleTextForPodcast(parsed.intro ?? '');
+    const outro = cleanArticleTextForPodcast(parsed.outro ?? '');
+    const episodeTitle = cleanArticleTextForPodcast(
+      parsed.episodeTitle?.trim() || `Rassegna ${feedLabel}`,
+    );
+
+    const scriptParts = [intro, ...segments.map((s) => s.spokenText), outro].filter(Boolean);
+    const fullScript = scriptParts.join('\n\n');
+    if (!fullScript) {
+      res.status(502).json({ error: 'Copione del podcast non valido.' });
+      return;
+    }
+
+    const ttsChunks = splitScriptForTts(fullScript, 2100);
+    const wavBuffers: Buffer[] = [];
+
+    for (const chunkText of ttsChunks) {
+      const ttsResponse = await ai.models.generateContent({
+        model: 'gemini-3.8-flash-lite-tts',
+        contents: [
+          {
+            role: 'user',
+            parts: [
+              {
+                text: chunkText,
+                speechMetadata: {
+                  style: 'Speaker radiofonico giornalistico italiano, tono chiaro, professionale e naturale',
+                },
+              },
+            ],
+          },
+        ],
+        config: {
+          responseModalities: ['AUDIO'],
+          speechConfig: {
+            voiceConfig: {
+              prebuiltVoiceConfig: { voiceName: 'Kore' },
+            },
+          },
+        },
+      });
+
+      const base64Part = ttsResponse.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+      if (!base64Part) {
+        res.status(502).json({ error: 'Il modello audio non ha restituito tracce vocali.' });
+        return;
+      }
+      wavBuffers.push(Buffer.from(base64Part, 'base64'));
+    }
+
+    const mergedWav = mergeWavBuffers(wavBuffers);
+    res.json({
+      episodeTitle,
+      script: fullScript,
+      segments,
+      audioBase64: mergedWav.toString('base64'),
+      mimeType: 'audio/wav',
+      generatedAt: Date.now(),
+    });
+  } catch (err) {
+    const errAny = err as { status?: number; message?: string };
+    const status = typeof errAny?.status === 'number' ? errAny.status : 500;
+    const rawMsg = typeof errAny?.message === 'string' ? errAny.message : '';
+    console.error('[podcast/generate]', status, rawMsg);
+
+    if (status === 429 || rawMsg.includes('RESOURCE_EXHAUSTED')) {
+      res.status(429).json({
+        error: 'Quota gratuita Gemini temporaneamente esaurita: riprova tra qualche minuto.',
+      });
+      return;
+    }
+    if (
+      status === 401 ||
+      status === 403 ||
+      rawMsg.includes('API_KEY_INVALID') ||
+      rawMsg.includes('PERMISSION_DENIED')
+    ) {
+      res.status(403).json({
+        error: 'Chiave GEMINI_API_KEY sul server non valida o non autorizzata.',
+      });
+      return;
+    }
+    if (status === 400) {
+      res.status(400).json({
+        error: `Richiesta AI non valida: ${rawMsg || 'controlla i parametri'}`,
+      });
+      return;
+    }
+    res.status(502).json({
+      error: 'Errore nella generazione del podcast AI. Riprova tra poco.',
+    });
   }
 });
 

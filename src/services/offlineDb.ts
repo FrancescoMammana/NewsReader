@@ -1,9 +1,10 @@
-import type { Story } from '../types/tmw';
+import type { PodcastEpisode, Story } from '../types/tmw';
 
 const DB_NAME = 'newsreader_offline_db';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const STORE_FEEDS = 'feeds';
 const STORE_ARTICLES = 'articles';
+const STORE_PODCASTS = 'podcasts';
 const MAX_NON_FAV_ARTICLES = 300;
 
 interface FeedRecord {
@@ -37,6 +38,9 @@ function openDb(): Promise<IDBDatabase | null> {
         if (!db.objectStoreNames.contains(STORE_ARTICLES)) {
           const store = db.createObjectStore(STORE_ARTICLES, { keyPath: 'id' });
           store.createIndex('cachedAt', 'cachedAt', { unique: false });
+        }
+        if (!db.objectStoreNames.contains(STORE_PODCASTS)) {
+          db.createObjectStore(STORE_PODCASTS, { keyPath: 'feedId' });
         }
       };
       request.onsuccess = () => resolve(request.result);
@@ -230,12 +234,51 @@ export const offlineDb = {
     }
   },
 
+  async getPodcast(feedId: string): Promise<PodcastEpisode | null> {
+    const db = await openDb();
+    if (!db) return null;
+    try {
+      const tx = db.transaction(STORE_PODCASTS, 'readonly');
+      const rec = await reqToPromise(
+        tx.objectStore(STORE_PODCASTS).get(feedId) as IDBRequest<PodcastEpisode | undefined>,
+      );
+      return rec ?? null;
+    } catch {
+      return null;
+    }
+  },
+
+  async savePodcast(episode: PodcastEpisode): Promise<void> {
+    const db = await openDb();
+    if (!db) return;
+    try {
+      const tx = db.transaction(STORE_PODCASTS, 'readwrite');
+      tx.objectStore(STORE_PODCASTS).put(episode);
+      await txDone(tx);
+    } catch {
+      // Ignore storage errors gracefully
+    }
+  },
+
+  async deletePodcast(feedId: string): Promise<void> {
+    const db = await openDb();
+    if (!db) return;
+    try {
+      const tx = db.transaction(STORE_PODCASTS, 'readwrite');
+      tx.objectStore(STORE_PODCASTS).delete(feedId);
+      await txDone(tx);
+    } catch {
+      // Ignore
+    }
+  },
+
   async clearOfflineData(protectedFavIds: Set<number>): Promise<number> {
     const db = await openDb();
     if (!db) return 0;
     try {
-      const tx = db.transaction([STORE_FEEDS, STORE_ARTICLES], 'readwrite');
+      const tx = db.transaction([STORE_FEEDS, STORE_ARTICLES, STORE_PODCASTS], 'readwrite');
       tx.objectStore(STORE_FEEDS).clear();
+      tx.objectStore(STORE_PODCASTS).clear();
       const articleStore = tx.objectStore(STORE_ARTICLES);
       const keys = await reqToPromise(articleStore.getAllKeys() as IDBRequest<IDBValidKey[]>);
       let remaining = 0;
