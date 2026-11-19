@@ -73,7 +73,7 @@ interface AppContextValue {
   markStoryRead: (story: Story) => void;
   clearReadStories: () => void;
   offlineArticleCount: number;
-  isOfflineCached: (id: number) => boolean;
+  isOfflineCached: (id: number, url?: string) => boolean;
   cacheArticleOffline: (story: Story) => Promise<void>;
   clearOfflineCache: () => Promise<void>;
 
@@ -125,11 +125,29 @@ interface AppContextValue {
 
 const AppContext = createContext<AppContextValue | null>(null);
 
+const ACTIVE_TAB_SESSION_KEY = 'newsreader_active_tab_v1';
+
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [preferences, setPreferences] = useState<Preferences>(() => storage.getPreferences());
-  const [activeTab, setActiveTab] = useState<StoryType | 'profile'>(
-    () => preferences.tabOrder[0] || 'profile',
-  );
+  const [activeTab, setActiveTab] = useState<StoryType | 'profile'>(() => {
+    try {
+      const saved = sessionStorage.getItem(ACTIVE_TAB_SESSION_KEY);
+      if (saved && (saved === 'profile' || preferences.tabOrder.includes(saved))) {
+        return saved;
+      }
+    } catch {
+      // Ignore sessionStorage errors
+    }
+    return preferences.tabOrder[0] || 'profile';
+  });
+
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(ACTIVE_TAB_SESSION_KEY, activeTab);
+    } catch {
+      // Ignore sessionStorage errors
+    }
+  }, [activeTab]);
 
   // System dark media query
   const [systemDark, setSystemDark] = useState<boolean>(() =>
@@ -287,22 +305,26 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const isFav = useCallback((id: number) => favItems.some((i) => i.id === id), [favItems]);
 
   const [offlineArticleIds, setOfflineArticleIds] = useState<Set<number>>(new Set());
+  const [offlineArticleUrls, setOfflineArticleUrls] = useState<Set<string>>(new Set());
   const offlineArticleCount = offlineArticleIds.size;
 
   const refreshOfflineIds = useCallback(async () => {
-    const ids = await offlineDb.getOfflineArticleIds();
+    const { ids, urls } = await offlineDb.getOfflineArticleKeys();
     setOfflineArticleIds(new Set(ids));
+    setOfflineArticleUrls(new Set(urls));
   }, []);
 
   const isOfflineCached = useCallback(
-    (id: number) => offlineArticleIds.has(id),
-    [offlineArticleIds],
+    (id: number, url?: string) =>
+      offlineArticleIds.has(id) || (Boolean(url) && offlineArticleUrls.has(url as string)),
+    [offlineArticleIds, offlineArticleUrls],
   );
 
   const cacheArticleOffline = useCallback(async (story: Story) => {
     await offlineDb.saveArticle(story, favIdSetRef.current);
-    const ids = await offlineDb.getOfflineArticleIds();
+    const { ids, urls } = await offlineDb.getOfflineArticleKeys();
     setOfflineArticleIds(new Set(ids));
+    setOfflineArticleUrls(new Set(urls));
   }, []);
 
   useEffect(() => {
@@ -334,6 +356,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               const merged: Story = {
                 ...story,
                 ...full,
+                id: story.id,
+                url: story.url || full.url,
                 title: full.title || story.title,
                 text:
                   (full.text || '').length >= (story.text || '').length
@@ -463,8 +487,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         const story = queue.shift();
         if (!story) break;
         try {
-          const existing = await offlineDb.getArticle(story.id);
+          const existing = await offlineDb.getArticle(story.id, story.url);
           if (existing && existing.text && existing.text.length >= 180) {
+            if (existing.id !== story.id) {
+              await offlineDb.saveArticle(
+                { ...existing, id: story.id, url: story.url || existing.url },
+                favIdSetRef.current,
+              );
+            }
             continue;
           }
           if (!story.url) {
@@ -476,6 +506,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             const merged: Story = {
               ...story,
               ...full,
+              id: story.id,
+              url: story.url || full.url,
               title: full.title || story.title,
               text:
                 (full.text || '').length >= (story.text || '').length

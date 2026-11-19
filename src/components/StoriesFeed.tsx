@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { RefreshCw, WifiOff, X } from 'lucide-react';
 import type { Story, StoryType } from '../types/tmw';
 import { EMPTY_FEED_BUCKET, useApp } from '../context/AppContext';
@@ -8,6 +8,8 @@ import { StoryTile } from './StoryTile';
 interface StoriesFeedProps {
   storyType: StoryType;
 }
+
+const PULL_THRESHOLD_PX = 56;
 
 export const StoriesFeed: React.FC<StoriesFeedProps> = ({ storyType }) => {
   const {
@@ -28,8 +30,12 @@ export const StoriesFeed: React.FC<StoriesFeedProps> = ({ storyType }) => {
 
   const bucket = feeds[storyType] ?? EMPTY_FEED_BUCKET;
   const scrollRef = useRef<HTMLDivElement>(null);
+  const touchStartYRef = useRef<number | null>(null);
+  const [pullDistance, setPullDistance] = useState(0);
 
   useEffect(() => {
+    setPullDistance(0);
+    touchStartYRef.current = null;
     ensureFeedLoaded(storyType);
   }, [storyType, ensureFeedLoaded]);
 
@@ -51,6 +57,41 @@ export const StoriesFeed: React.FC<StoriesFeedProps> = ({ storyType }) => {
       el.scrollHeight - el.scrollTop - el.clientHeight < 280
     ) {
       void loadMoreFeed(storyType);
+    }
+  };
+
+  const handleTouchStart = (e: React.TouchEvent<HTMLDivElement>) => {
+    const el = scrollRef.current;
+    if (!el || el.scrollTop > 0 || bucket.loading || e.touches.length !== 1) {
+      touchStartYRef.current = null;
+      return;
+    }
+    touchStartYRef.current = e.touches[0].clientY;
+  };
+
+  const handleTouchMove = (e: React.TouchEvent<HTMLDivElement>) => {
+    if (touchStartYRef.current === null || e.touches.length !== 1) return;
+    const el = scrollRef.current;
+    if (!el || el.scrollTop > 0) {
+      touchStartYRef.current = null;
+      setPullDistance(0);
+      return;
+    }
+    const delta = e.touches[0].clientY - touchStartYRef.current;
+    if (delta > 0) {
+      setPullDistance(Math.min(84, delta * 0.5));
+    } else {
+      setPullDistance(0);
+    }
+  };
+
+  const handleTouchEnd = () => {
+    if (touchStartYRef.current === null) return;
+    const shouldRefresh = pullDistance >= PULL_THRESHOLD_PX;
+    touchStartYRef.current = null;
+    setPullDistance(0);
+    if (shouldRefresh && !bucket.loading) {
+      void refreshFeed(storyType);
     }
   };
 
@@ -79,7 +120,33 @@ export const StoriesFeed: React.FC<StoriesFeedProps> = ({ storyType }) => {
         </button>
       </div>
 
-      <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto">
+      <div
+        ref={scrollRef}
+        onScroll={handleScroll}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+        onTouchCancel={handleTouchEnd}
+        className="flex-1 overflow-y-auto overscroll-y-contain"
+      >
+        {pullDistance > 8 && (
+          <div
+            className="flex items-center justify-center gap-1.5 text-xs text-neutral-500 dark:text-neutral-400 overflow-hidden transition-[height] duration-75"
+            style={{ height: `${Math.round(pullDistance)}px` }}
+          >
+            <RefreshCw
+              className={`w-3.5 h-3.5 transition-transform ${
+                pullDistance >= PULL_THRESHOLD_PX ? 'rotate-180' : ''
+              }`}
+              style={{ color: accentHex }}
+            />
+            <span>
+              {pullDistance >= PULL_THRESHOLD_PX
+                ? 'Rilascia per aggiornare'
+                : 'Trascina per aggiornare'}
+            </span>
+          </div>
+        )}
         {/* Pinned Stories */}
         {pinnedStories.length > 0 && (
           <div className="border-b-2" style={{ borderBottomColor: accentHex }}>

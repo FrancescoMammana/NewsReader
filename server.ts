@@ -555,10 +555,17 @@ app.get('/api/rss/feed', async (req: Request, res: Response) => {
       return;
     }
 
+    const decodeEntities = (raw: string): string => {
+      if (!raw || !raw.includes('&')) return raw;
+      return cheerio.load(`<span>${raw}</span>`).text().replace(/\s+/g, ' ').trim();
+    };
+
     const feedTitle =
-      (isAtom
-        ? $('feed > title').first().text().trim()
-        : $('channel > title').first().text().trim()) ||
+      decodeEntities(
+        (isAtom
+          ? $('feed > title').first().text().trim()
+          : $('channel > title').first().text().trim()),
+      ) ||
       customLabel ||
       new URL(targetUrl).hostname.replace(/^www\./, '');
 
@@ -568,7 +575,7 @@ app.get('/api/rss/feed', async (req: Request, res: Response) => {
     const entries = isAtom ? $('feed > entry') : $('item');
     entries.each((_, el) => {
       const node = $(el);
-      const title = node.find('title').first().text().replace(/\s+/g, ' ').trim();
+      const title = decodeEntities(node.find('title').first().text().replace(/\s+/g, ' ').trim());
       if (!title) return;
 
       let rawLink = '';
@@ -582,7 +589,9 @@ app.get('/api/rss/feed', async (req: Request, res: Response) => {
       }
       const link = resolveUrl(targetUrl, rawLink) || targetUrl;
       const guid = node.find(isAtom ? 'id' : 'guid').first().text().trim();
-      const id = extractArticleId(guid || `${link}#${title}`);
+      // Derive ID from canonical article URL when available so feed and full-article endpoints share identical IDs
+      const idSource = rawLink && link !== targetUrl ? link : guid || `${link}#${title}`;
+      const id = extractArticleId(idSource);
       if (seenIds.has(id)) return;
       seenIds.add(id);
 
@@ -595,17 +604,20 @@ app.get('/api/rss/feed', async (req: Request, res: Response) => {
       const parsedMs = dateStr ? Date.parse(dateStr) : NaN;
       const time = !Number.isNaN(parsedMs) ? Math.floor(parsedMs / 1000) : Math.floor(Date.now() / 1000);
 
-      const author = (
-        node.find('dc\\:creator').first().text() ||
-        node.find('author > name').first().text() ||
-        node.find('author').first().text()
-      )
-        .replace(/\s+/g, ' ')
-        .trim();
+      const author = decodeEntities(
+        (
+          node.find('dc\\:creator').first().text() ||
+          node.find('author > name').first().text() ||
+          node.find('author').first().text()
+        )
+          .replace(/\s+/g, ' ')
+          .trim(),
+      );
 
       const catEl = node.find('category').first();
-      const category =
-        (catEl.attr('term') || catEl.text() || customLabel || feedTitle).replace(/\s+/g, ' ').trim();
+      const category = decodeEntities(
+        (catEl.attr('term') || catEl.text() || customLabel || feedTitle).replace(/\s+/g, ' ').trim(),
+      );
 
       const encoded =
         node.find('content\\:encoded').first().text() ||

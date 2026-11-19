@@ -11,7 +11,7 @@ import {
 } from 'lucide-react';
 import type { Story } from '../types/tmw';
 import { useApp } from '../context/AppContext';
-import { getFaviconUrl, getReadableUrl, getStoryMetadata } from '../utils/formatting';
+import { getFaviconUrl, getStoryMetadata } from '../utils/formatting';
 import { LinkPreview } from './LinkPreview';
 
 interface StoryTileProps {
@@ -24,7 +24,7 @@ interface StoryTileProps {
   showWebPreview: boolean;
   showMetadata: boolean;
   showFavicon: boolean;
-  showUrl: boolean;
+  showUrl?: boolean;
   disableActions?: boolean;
 }
 
@@ -38,7 +38,6 @@ export const StoryTile: React.FC<StoryTileProps> = ({
   showWebPreview,
   showMetadata,
   showFavicon,
-  showUrl,
   disableActions = false,
 }) => {
   const {
@@ -77,10 +76,9 @@ export const StoryTile: React.FC<StoryTileProps> = ({
 
   if (story.hidden) return null;
 
-  const domain = getReadableUrl(story.url);
   const pinned = isPinned(story.id);
   const faved = isFav(story.id);
-  const offlineReady = isOfflineCached(story.id);
+  const offlineReady = isOfflineCached(story.id, story.url);
   const faviconUrl = story.url ? getFaviconUrl(story.url, 32) : '';
 
   const handleCopyShare = (e: React.MouseEvent) => {
@@ -134,12 +132,7 @@ export const StoryTile: React.FC<StoryTileProps> = ({
                   : 'font-semibold text-neutral-900 dark:text-neutral-100'
               }`}
             >
-              <span>{story.title}</span>
-              {showUrl && domain && (
-                <span className="ml-1.5 text-xs font-normal text-neutral-500 dark:text-neutral-400">
-                  ({domain})
-                </span>
-              )}
+              {story.title}
             </h3>
 
             {!disableActions && (

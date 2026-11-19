@@ -84,7 +84,7 @@ export const ItemView: React.FC<ItemViewProps> = ({ args, isSplitView }) => {
 
   const loadArticle = useCallback(async () => {
     setImgFailed(false);
-    const cached = await offlineDb.getArticle(args.item.id);
+    const cached = await offlineDb.getArticle(args.item.id, args.item.url);
     const offlineOnly = typeof navigator !== 'undefined' && !navigator.onLine;
 
     if (offlineOnly) {
@@ -111,6 +111,8 @@ export const ItemView: React.FC<ItemViewProps> = ({ args, isSplitView }) => {
         const merged: Story = {
           ...(args.item as Story),
           ...full,
+          id: args.item.id,
+          url: args.item.url || full.url,
           title: full.title || args.item.title,
           text: nextText.length >= prevText.length ? nextText : prevText,
           image: full.image || (args.item as Story).image,
@@ -271,7 +273,7 @@ export const ItemView: React.FC<ItemViewProps> = ({ args, isSplitView }) => {
   const domain = getReadableUrl(article.url);
   const faved = isFav(article.id);
   const pinned = isPinned(article.id);
-  const offlineReady = isOfflineCached(article.id);
+  const offlineReady = isOfflineCached(article.id, article.url);
 
   return (
     <div className="relative flex flex-col h-full bg-white dark:bg-neutral-950">

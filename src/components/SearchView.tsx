@@ -29,6 +29,8 @@ function mergeStoryRichness(existing: Story | undefined, incoming: Story): Story
   return {
     ...existing,
     ...incoming,
+    id: existing.id || incoming.id,
+    url: existing.url || incoming.url,
     title: incoming.title || existing.title,
     text: incomingTextLen >= existingTextLen ? incoming.text : existing.text,
     subtitle: incoming.subtitle || existing.subtitle,
@@ -65,11 +67,12 @@ export const SearchView: React.FC = () => {
           offlineDb.getAllArticles(),
         ]);
 
-        const poolMap = new Map<number, Story>();
+        const poolMap = new Map<string, Story>();
         const addAll = (list: Story[]) => {
           for (const item of list) {
             if (!item || typeof item.id !== 'number') continue;
-            poolMap.set(item.id, mergeStoryRichness(poolMap.get(item.id), item));
+            const key = item.url?.trim() || `id:${item.id}`;
+            poolMap.set(key, mergeStoryRichness(poolMap.get(key), item));
           }
         };
 

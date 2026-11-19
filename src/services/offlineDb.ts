@@ -129,15 +129,20 @@ export const offlineDb = {
     }
   },
 
-  async getArticle(id: number): Promise<Story | null> {
+  async getArticle(id: number, url?: string): Promise<Story | null> {
     const db = await openDb();
     if (!db) return null;
     try {
       const tx = db.transaction(STORE_ARTICLES, 'readonly');
-      const rec = await reqToPromise(
-        tx.objectStore(STORE_ARTICLES).get(id) as IDBRequest<ArticleRecord | undefined>,
-      );
-      return rec?.story ?? null;
+      const store = tx.objectStore(STORE_ARTICLES);
+      const rec = await reqToPromise(store.get(id) as IDBRequest<ArticleRecord | undefined>);
+      if (rec?.story) return rec.story;
+      if (url) {
+        const all = await reqToPromise(store.getAll() as IDBRequest<ArticleRecord[]>);
+        const byUrl = all.find((r) => r.story?.url === url);
+        if (byUrl?.story) return byUrl.story;
+      }
+      return null;
     } catch {
       return null;
     }
@@ -189,18 +194,29 @@ export const offlineDb = {
     }
   },
 
-  async getOfflineArticleIds(): Promise<number[]> {
+  async getOfflineArticleKeys(): Promise<{ ids: number[]; urls: string[] }> {
     const db = await openDb();
-    if (!db) return [];
+    if (!db) return { ids: [], urls: [] };
     try {
       const tx = db.transaction(STORE_ARTICLES, 'readonly');
-      const keys = await reqToPromise(
-        tx.objectStore(STORE_ARTICLES).getAllKeys() as IDBRequest<IDBValidKey[]>,
+      const all = await reqToPromise(
+        tx.objectStore(STORE_ARTICLES).getAll() as IDBRequest<ArticleRecord[]>,
       );
-      return keys.map((k) => Number(k)).filter((n) => Number.isFinite(n));
+      const ids: number[] = [];
+      const urls: string[] = [];
+      for (const rec of all) {
+        if (Number.isFinite(rec.id)) ids.push(rec.id);
+        if (rec.story?.url) urls.push(rec.story.url);
+      }
+      return { ids, urls };
     } catch {
-      return [];
+      return { ids: [], urls: [] };
     }
+  },
+
+  async getOfflineArticleIds(): Promise<number[]> {
+    const { ids } = await this.getOfflineArticleKeys();
+    return ids;
   },
 
   async getOfflineArticleCount(): Promise<number> {

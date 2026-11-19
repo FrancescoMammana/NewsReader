@@ -47,7 +47,7 @@ export const LinkPreview: React.FC<LinkPreviewProps> = ({
     async function load() {
       setLoading(true);
       if (typeof navigator !== 'undefined' && !navigator.onLine) {
-        const offlineArt = await offlineDb.getArticle(story.id);
+        const offlineArt = await offlineDb.getArticle(story.id, story.url);
         const res: WebPreviewInfo = {
           title: story.title,
           description: offlineArt?.subtitle || offlineArt?.text || story.text || 'Articolo salvato offline',
@@ -105,19 +105,14 @@ export const LinkPreview: React.FC<LinkPreviewProps> = ({
 
   return (
     <div className="mt-2 flex gap-3 items-start">
-      <a
-        href={story.url || undefined}
-        target="_blank"
-        rel="noopener noreferrer"
+      <button
+        type="button"
         onClick={(e) => {
           e.stopPropagation();
-          if (!story.url) {
-            e.preventDefault();
-            onOpenThread();
-          }
+          onOpenThread();
         }}
         className="w-16 h-16 shrink-0 rounded overflow-hidden flex items-center justify-center bg-neutral-100 dark:bg-neutral-800/70 border border-neutral-200/70 dark:border-neutral-800"
-        title={story.url ? `Open ${story.url}` : 'Read article'}
+        title="Leggi articolo"
       >
         {thumbSrc ? (
           <img
@@ -140,7 +135,7 @@ export const LinkPreview: React.FC<LinkPreviewProps> = ({
         ) : (
           <Globe className="w-5 h-5 text-neutral-400" />
         )}
-      </a>
+      </button>
 
       <div
         onClick={onOpenThread}

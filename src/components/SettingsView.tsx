@@ -117,11 +117,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       key: 'isMetadataEnabled',
       title: 'Show Metadata',
       subtitle: 'Show category, tag, and timestamp in article tile.',
-    },
-    {
-      key: 'isUrlEnabled',
-      title: 'Show Domain',
-      subtitle: 'Show source domain in article tile.',
       dividerAfter: true,
     },
     {
