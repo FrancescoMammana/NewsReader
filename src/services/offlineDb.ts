@@ -260,18 +260,6 @@ export const offlineDb = {
     }
   },
 
-  async deletePodcast(feedId: string): Promise<void> {
-    const db = await openDb();
-    if (!db) return;
-    try {
-      const tx = db.transaction(STORE_PODCASTS, 'readwrite');
-      tx.objectStore(STORE_PODCASTS).delete(feedId);
-      await txDone(tx);
-    } catch {
-      // Ignore
-    }
-  },
-
   async clearOfflineData(protectedFavIds: Set<number>): Promise<number> {
     const db = await openDb();
     if (!db) return 0;

@@ -227,7 +227,6 @@ export interface ToastMessage {
 export interface PodcastSegment {
   storyId: number;
   headline: string;
-  spokenText: string;
 }
 
 export interface PodcastEpisode {
@@ -236,7 +235,6 @@ export interface PodcastEpisode {
   episodeTitle: string;
   script: string;
   segments: PodcastSegment[];
-  storyIds: number[];
   storiesSignature: string;
   audioBlob: Blob;
   generatedAt: number;
