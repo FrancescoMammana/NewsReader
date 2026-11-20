@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { tmwRouter } from './server/tmw.ts';
 import { rssRouter } from './server/rss.ts';
 import { linkPreviewRouter } from './server/linkPreview.ts';
+import { aiQuestionRouter } from './server/aiQuestion.ts';
 import {
   generatePodcastArtifacts,
   isPodcastAvailable,
@@ -53,6 +54,7 @@ app.use(express.json({ limit: '1mb' }));
 app.use(tmwRouter);
 app.use(rssRouter);
 app.use(linkPreviewRouter);
+app.use(aiQuestionRouter);
 
 app.get('/api/podcast/status', (_req: Request, res: Response) => {
   res.json({ available: isPodcastAvailable() });

@@ -1,11 +1,10 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef } from 'react';
 import { ExternalLink } from 'lucide-react';
 import { FONT_SIZE_OPTIONS, type FontSizeOption, type ItemScreenArgs } from '../types/tmw';
-import { useLibrary, useNavigation, usePreferences, useToasts } from '../context/AppContext';
+import { useLibrary, useNavigation, usePreferences } from '../context/AppContext';
 import { useArticleLoader } from '../hooks/useArticleLoader';
-import { useArticleNotes } from '../hooks/useArticleNotes';
 import { formatTimestamp, getReadableUrl } from '../utils/formatting';
-import { ItemNotesSection, NoteComposer } from './ItemNotesSection';
+import { ArticleAiAssistant } from './ArticleAiAssistant';
 import { ItemText } from './ItemText';
 import { ItemToolbar } from './ItemToolbar';
 
@@ -26,9 +25,7 @@ export const ItemView: React.FC<ItemViewProps> = ({ args, isSplitView }) => {
     splitViewExpanded,
     setSplitViewExpanded,
   } = useNavigation();
-  const { showToast } = useToasts();
 
-  const [searchOpen, setSearchOpen] = useState(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   const { article, loading, imgFailed, setImgFailed, reloadArticle } = useArticleLoader({
@@ -36,14 +33,7 @@ export const ItemView: React.FC<ItemViewProps> = ({ args, isSplitView }) => {
     cacheArticleOffline,
   });
 
-  const notesState = useArticleNotes({
-    articleId: args.item.id,
-    isAutoScrollEnabled: preferences.isAutoScrollEnabled,
-    showToast,
-  });
-
   useEffect(() => {
-    setSearchOpen(false);
     scrollContainerRef.current?.scrollTo({ top: 0 });
   }, [args]);
 
@@ -64,15 +54,6 @@ export const ItemView: React.FC<ItemViewProps> = ({ args, isSplitView }) => {
         splitViewExpanded={splitViewExpanded}
         onToggleExpand={() => setSplitViewExpanded(!splitViewExpanded)}
         onBack={() => (itemHistoryStack.length > 1 ? goBackItem() : closeItem())}
-        searchOpen={searchOpen}
-        onToggleSearch={() => setSearchOpen((v) => !v)}
-        searchQuery={notesState.searchQuery}
-        onSearchQueryChange={notesState.setSearchQuery}
-        onCloseSearch={() => {
-          notesState.setSearchQuery('');
-          setSearchOpen(false);
-        }}
-        matchCount={notesState.matchedNoteIds.size}
         fontSize={preferences.fontSize}
         onSelectFontSize={(size: FontSizeOption) => updatePreference('fontSize', size)}
         pinned={pinned}
@@ -85,7 +66,7 @@ export const ItemView: React.FC<ItemViewProps> = ({ args, isSplitView }) => {
         accentHex={accentHex}
       />
 
-      {/* Main Scrollable Article & Notes */}
+      {/* Main Scrollable Article & AI Assistant */}
       <div ref={scrollContainerRef} className="flex-1 overflow-y-auto pb-28">
         <div className="max-w-3xl mx-auto px-4 py-4 border-b border-neutral-200 dark:border-neutral-800">
           <div className="flex items-center justify-between text-xs mb-2.5 gap-2">
@@ -104,7 +85,7 @@ export const ItemView: React.FC<ItemViewProps> = ({ args, isSplitView }) => {
                 </span>
               )}
               <span className="font-medium text-neutral-700 dark:text-neutral-300 truncate">
-                {article.by || 'Redazione TMW'}
+                {article.by || 'Redazione'}
               </span>
             </div>
             <span className="text-neutral-500 dark:text-neutral-400 tabular-nums shrink-0">
@@ -160,7 +141,7 @@ export const ItemView: React.FC<ItemViewProps> = ({ args, isSplitView }) => {
 
           {article.url && (
             <div className="mt-5 pt-3 border-t border-neutral-100 dark:border-neutral-900 flex items-center justify-between text-xs text-neutral-500">
-              <span>Source: {domain || 'fonte originale'}</span>
+              <span>Fonte: {domain || 'fonte originale'}</span>
               <a
                 href={article.url}
                 target="_blank"
@@ -173,11 +154,14 @@ export const ItemView: React.FC<ItemViewProps> = ({ args, isSplitView }) => {
               </a>
             </div>
           )}
+
+          {/* AI Assistant Chat Section */}
+          <ArticleAiAssistant article={article} />
         </div>
 
         {/* Related Articles */}
         {article.related && article.related.length > 0 && (
-          <div className="max-w-3xl mx-auto px-4 py-4 border-b border-neutral-200 dark:border-neutral-800">
+          <div className="max-w-3xl mx-auto px-4 py-4">
             <h2 className="text-xs font-bold uppercase tracking-wider text-neutral-500 dark:text-neutral-400 mb-2.5">
               Notizie correlate
             </h2>
@@ -208,32 +192,7 @@ export const ItemView: React.FC<ItemViewProps> = ({ args, isSplitView }) => {
             </div>
           </div>
         )}
-
-        <ItemNotesSection
-          notesCount={notesState.notes.length}
-          visibleRows={notesState.visibleRows}
-          collapsedIds={notesState.collapsedIds}
-          collapsedChildCounts={notesState.collapsedChildCounts}
-          matchedNoteIds={notesState.matchedNoteIds}
-          fontSizePx={activeFontSizePx}
-          onToggleCollapse={notesState.toggleCollapse}
-          onReply={notesState.startReply}
-          onEdit={notesState.startEdit}
-          onDelete={notesState.deleteNote}
-        />
       </div>
-
-      <NoteComposer
-        replyingTo={notesState.replyingTo}
-        editingNote={notesState.editingNote}
-        composerText={notesState.composerText}
-        composerExpanded={notesState.composerExpanded}
-        accentHex={accentHex}
-        onExpand={() => notesState.setComposerExpanded(true)}
-        onChangeText={notesState.updateComposerText}
-        onReset={notesState.resetComposer}
-        onSave={notesState.saveNote}
-      />
     </div>
   );
 };
