@@ -6,19 +6,13 @@ export const USER_AGENT =
 export interface TmwStoryDto {
   id: number;
   time: number;
-  score: number;
   parent: number;
-  descendants: number;
-  deleted: boolean;
-  dead: boolean;
   hidden: boolean;
   by: string;
   text: string;
   url: string;
   title: string;
   type: 'story';
-  kids: number[];
-  parts: number[];
   image?: string;
   category?: string;
   label?: string;

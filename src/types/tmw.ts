@@ -11,22 +11,6 @@ export interface ConfiguredFeed {
   url: string;
 }
 
-export const STORY_TYPE_META: Record<BuiltinStoryType, { path: string; label: string }> = {
-  latest: { path: 'ricerca', label: 'ULTIME' },
-  serieA: { path: 'serie-a', label: 'SERIE A' },
-  estero: { path: 'calcio-estero', label: 'ESTERO' },
-  serieB: { path: 'serie-b', label: 'SERIE B' },
-  editoriale: { path: 'editoriale', label: 'EDITORIALI' },
-};
-
-export const ALL_STORY_TYPES: BuiltinStoryType[] = [
-  'latest',
-  'serieA',
-  'estero',
-  'serieB',
-  'editoriale',
-];
-
 export const DEFAULT_CONFIGURED_FEEDS: ConfiguredFeed[] = [
   {
     id: 'latest',
@@ -65,19 +49,11 @@ export const DEFAULT_CONFIGURED_FEEDS: ConfiguredFeed[] = [
   },
 ];
 
-export function isBuiltinStoryType(id: string): id is BuiltinStoryType {
-  return (ALL_STORY_TYPES as string[]).includes(id);
-}
-
 export interface CustomRssFeed {
   id: string;
   label: string;
   url: string;
 }
-
-export type FetchMode = 'eager' | 'lazy';
-
-export type CommentsOrder = 'natural' | 'newestFirst' | 'oldestFirst';
 
 export type DateDisplayFormat = 'timeAgo' | 'yMd' | 'yMEd' | 'yMMMd' | 'yMMMEd';
 
@@ -136,19 +112,13 @@ export const ACCENT_COLORS: AccentColorOption[] = [
 export interface Item {
   id: number;
   time: number;
-  score: number;
   parent: number;
-  descendants: number;
-  deleted: boolean;
-  dead: boolean;
   hidden: boolean;
   by: string;
   text: string;
   url: string;
   title: string;
   type: 'story' | 'comment' | string;
-  kids: number[];
-  parts: number[];
   image?: string;
   category?: string;
   label?: string;
@@ -162,7 +132,6 @@ export interface Story extends Item {
 
 export interface Comment extends Item {
   level: number;
-  isFromCache?: boolean;
 }
 
 export interface WebPreviewInfo {
@@ -182,8 +151,6 @@ export interface SearchParams {
 }
 
 export interface Preferences {
-  fetchMode: FetchMode;
-  commentsOrder: CommentsOrder;
   font: FontOption;
   fontSize: FontSizeOption;
   tabOrder: StoryType[];
@@ -198,20 +165,15 @@ export interface Preferences {
   isMetadataEnabled: boolean;
   isUrlEnabled: boolean;
   isMarkReadStoriesEnabled: boolean;
-  isNotificationEnabled: boolean;
   isAutoScrollEnabled: boolean;
   isTapAnywhereToCollapseEnabled: boolean;
   isManualPaginationEnabled: boolean;
   isEyeCandyEnabled: boolean;
   isTrueDarkModeEnabled: boolean;
-  isDevModeEnabled: boolean;
 }
 
 export interface ItemScreenArgs {
   item: Item;
-  onlyShowTargetComment?: boolean;
-  shouldMarkNewComment?: boolean;
-  targetComments?: Comment[];
 }
 
 export type ProfileSubPage = 'fav' | 'search' | 'settings';

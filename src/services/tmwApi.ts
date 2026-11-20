@@ -5,13 +5,36 @@ import type {
   WebPreviewInfo,
 } from '../types/tmw';
 
+interface FetchJsonOptions extends RequestInit {
+  fallbackError?: string;
+  timeoutMs?: number;
+}
+
+async function fetchJson<T>(url: string, options: FetchJsonOptions = {}): Promise<T> {
+  const { fallbackError, timeoutMs = 15000, signal, ...fetchInit } = options;
+  const effectiveSignal =
+    signal ??
+    (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function'
+      ? AbortSignal.timeout(timeoutMs)
+      : undefined);
+
+  const res = await fetch(url, { ...fetchInit, signal: effectiveSignal });
+  const data = (await res.json().catch(() => null)) as (T & { error?: string }) | null;
+
+  if (!res.ok || !data) {
+    throw new Error(data?.error || fallbackError || `Errore HTTP ${res.status}`);
+  }
+  return data;
+}
+
 export async function fetchTmwFeed(
   type: StoryType,
   start = 0,
 ): Promise<{ stories: Story[]; nextStart: number | null }> {
-  const res = await fetch(`/api/tmw/feed?category=${encodeURIComponent(type)}&start=${start}`);
-  if (!res.ok) throw new Error('Failed to load TuttoMercatoWeb feed');
-  return (await res.json()) as { stories: Story[]; nextStart: number | null };
+  return fetchJson<{ stories: Story[]; nextStart: number | null }>(
+    `/api/tmw/feed?category=${encodeURIComponent(type)}&start=${start}`,
+    { fallbackError: 'Failed to load TuttoMercatoWeb feed' },
+  );
 }
 
 export async function fetchCustomRssFeed(
@@ -20,9 +43,10 @@ export async function fetchCustomRssFeed(
 ): Promise<{ feedTitle?: string; stories: Story[]; nextStart: number | null }> {
   const sp = new URLSearchParams({ url });
   if (label) sp.set('label', label);
-  const res = await fetch(`/api/rss/feed?${sp.toString()}`);
-  const data = (await res.json()) as { feedTitle?: string; stories?: Story[]; error?: string };
-  if (!res.ok) throw new Error(data.error || 'Impossibile caricare il feed RSS');
+  const data = await fetchJson<{ feedTitle?: string; stories?: Story[] }>(
+    `/api/rss/feed?${sp.toString()}`,
+    { fallbackError: 'Impossibile caricare il feed RSS' },
+  );
   return {
     feedTitle: data.feedTitle,
     stories: data.stories ?? [],
@@ -35,17 +59,17 @@ export async function fetchTmwArticle(url: string): Promise<Story | null> {
   const endpoint = url.startsWith('https://www.tuttomercatoweb.com')
     ? `/api/tmw/article?url=${encodeURIComponent(url)}`
     : `/api/rss/article?url=${encodeURIComponent(url)}`;
-  const res = await fetch(endpoint);
-  if (!res.ok) return null;
-  const data = (await res.json()) as { article?: Story };
-  return data.article ?? null;
+  try {
+    const data = await fetchJson<{ article?: Story }>(endpoint);
+    return data.article ?? null;
+  } catch {
+    return null;
+  }
 }
 
 export async function fetchLinkPreview(url: string): Promise<WebPreviewInfo> {
   try {
-    const res = await fetch(`/api/link-preview?url=${encodeURIComponent(url)}`);
-    if (!res.ok) return {};
-    return (await res.json()) as WebPreviewInfo;
+    return await fetchJson<WebPreviewInfo>(`/api/link-preview?url=${encodeURIComponent(url)}`);
   } catch {
     return {};
   }
@@ -71,9 +95,9 @@ export interface GeneratePodcastResponse {
 
 export async function fetchPodcastStatus(): Promise<boolean> {
   try {
-    const res = await fetch('/api/podcast/status');
-    if (!res.ok) return false;
-    const data = (await res.json()) as { available?: boolean };
+    const data = await fetchJson<{ available?: boolean }>('/api/podcast/status', {
+      timeoutMs: 8000,
+    });
     return Boolean(data.available);
   } catch {
     return false;
@@ -84,16 +108,15 @@ export async function generatePodcastApi(
   feedLabel: string,
   articles: PodcastArticleInput[],
 ): Promise<GeneratePodcastResponse> {
-  const res = await fetch('/api/podcast/generate', {
+  const data = await fetchJson<Partial<GeneratePodcastResponse>>('/api/podcast/generate', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ feedLabel, articles }),
+    timeoutMs: 90000,
+    fallbackError: 'Impossibile generare il podcast AI.',
   });
-  const data = (await res.json().catch(() => ({}))) as Partial<GeneratePodcastResponse> & {
-    error?: string;
-  };
-  if (!res.ok || !data.audioBase64 || !data.episodeTitle || !data.script) {
-    throw new Error(data.error || `Impossibile generare il podcast AI (HTTP ${res.status}).`);
+  if (!data.audioBase64 || !data.episodeTitle || !data.script) {
+    throw new Error('Risposta incompleta dal server Podcast AI.');
   }
   return {
     episodeTitle: data.episodeTitle,
@@ -104,4 +127,3 @@ export async function generatePodcastApi(
     generatedAt: data.generatedAt ?? Date.now(),
   };
 }
-

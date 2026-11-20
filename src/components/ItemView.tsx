@@ -27,6 +27,7 @@ import { fetchTmwArticle } from '../services/tmwApi';
 import { offlineDb } from '../services/offlineDb';
 import { storage } from '../services/storage';
 import { formatTimestamp, getReadableUrl } from '../utils/formatting';
+import { mergeFullArticle } from '../utils/articleMerge';
 import { CommentTile } from './CommentTile';
 import { ItemText } from './ItemText';
 
@@ -106,19 +107,7 @@ export const ItemView: React.FC<ItemViewProps> = ({ args, isSplitView }) => {
     try {
       const full = await fetchTmwArticle(args.item.url);
       if (full) {
-        const prevText = (args.item as Story).text || '';
-        const nextText = full.text || '';
-        const merged: Story = {
-          ...(args.item as Story),
-          ...full,
-          id: args.item.id,
-          url: args.item.url || full.url,
-          title: full.title || args.item.title,
-          text: nextText.length >= prevText.length ? nextText : prevText,
-          image: full.image || (args.item as Story).image,
-          category: full.category || (args.item as Story).category,
-          label: (args.item as Story).label || full.label,
-        };
+        const merged = mergeFullArticle(args.item as Story, full);
         setArticle(merged);
         void cacheArticleOffline(merged);
       } else if (cached) {
@@ -226,19 +215,13 @@ export const ItemView: React.FC<ItemViewProps> = ({ args, isSplitView }) => {
       id: Date.now(),
       time: Math.floor(Date.now() / 1000),
       parent: replyingTo ? replyingTo.id : article.id,
-      score: 1,
       by: 'Nota personale',
       text: trimmed,
-      kids: [],
-      dead: false,
-      deleted: false,
       hidden: false,
       level: replyingTo ? replyingTo.level + 1 : 0,
       type: 'comment',
       title: '',
       url: '',
-      descendants: 0,
-      parts: [],
     };
 
     let updated: Comment[];

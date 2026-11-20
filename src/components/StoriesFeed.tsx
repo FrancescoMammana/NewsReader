@@ -45,10 +45,7 @@ export const StoriesFeed: React.FC<StoriesFeedProps> = ({ storyType }) => {
   }, [storyType, ensureFeedLoaded]);
 
   const handleStoryTap = (story: Story) => {
-    openItem({
-      item: story,
-      shouldMarkNewComment: preferences.isMarkReadStoriesEnabled && readStoryIds.has(story.id),
-    });
+    openItem({ item: story });
   };
 
   const handleScroll = () => {

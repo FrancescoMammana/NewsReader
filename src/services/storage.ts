@@ -25,8 +25,6 @@ const KEYS = {
 };
 
 export const DEFAULT_PREFERENCES: Preferences = {
-  fetchMode: 'eager',
-  commentsOrder: 'natural',
   font: 'RobotoSlab',
   fontSize: 'regular',
   tabOrder: DEFAULT_CONFIGURED_FEEDS.map((f) => f.id),
@@ -41,13 +39,11 @@ export const DEFAULT_PREFERENCES: Preferences = {
   isMetadataEnabled: true,
   isUrlEnabled: true,
   isMarkReadStoriesEnabled: true,
-  isNotificationEnabled: true,
   isAutoScrollEnabled: false,
   isTapAnywhereToCollapseEnabled: true,
   isManualPaginationEnabled: false,
   isEyeCandyEnabled: false,
   isTrueDarkModeEnabled: false,
-  isDevModeEnabled: false,
 };
 
 function readJson<T>(key: string, fallback: T): T {
@@ -123,16 +119,45 @@ function sanitizeTabOrder(order?: unknown, feeds: ConfiguredFeed[] = []): StoryT
 
 export const storage = {
   getPreferences(): Preferences {
-    const saved = readJson<Partial<Preferences> & { customFeeds?: unknown }>(KEYS.PREFS, {});
+    const saved = readJson<
+      Partial<Preferences> & {
+        customFeeds?: unknown;
+        fetchMode?: unknown;
+        commentsOrder?: unknown;
+        isNotificationEnabled?: unknown;
+        isDevModeEnabled?: unknown;
+      }
+    >(KEYS.PREFS, {});
     const configuredFeeds = Array.isArray(saved.configuredFeeds)
       ? sanitizeConfiguredFeeds(saved.configuredFeeds)
       : [...DEFAULT_CONFIGURED_FEEDS, ...sanitizeLegacyCustomFeeds(saved.customFeeds)];
-    return {
+
+    const hasLegacyKeys =
+      'fetchMode' in saved ||
+      'commentsOrder' in saved ||
+      'isNotificationEnabled' in saved ||
+      'isDevModeEnabled' in saved ||
+      'customFeeds' in saved;
+
+    const rest = { ...saved };
+    delete rest.fetchMode;
+    delete rest.commentsOrder;
+    delete rest.isNotificationEnabled;
+    delete rest.isDevModeEnabled;
+    delete rest.customFeeds;
+
+    const normalized: Preferences = {
       ...DEFAULT_PREFERENCES,
-      ...saved,
+      ...rest,
       configuredFeeds,
       tabOrder: sanitizeTabOrder(saved.tabOrder, configuredFeeds),
     };
+
+    if (hasLegacyKeys) {
+      writeJson(KEYS.PREFS, normalized);
+    }
+
+    return normalized;
   },
   savePreferences(prefs: Preferences): void {
     writeJson(KEYS.PREFS, prefs);

@@ -32,18 +32,12 @@ import { StoryTile } from './StoryTile';
 
 const PLACEHOLDER_STORY: Story = {
   id: 0,
-  score: 0,
-  descendants: 0,
   time: Math.floor(Date.now() / 1000) - 3600 * 2,
   by: 'Serie A · Focus TMW',
   category: 'Serie A',
   label: 'Focus TMW',
   title: 'Calciomercato Serie A: tutte le trattative e le notizie di giornata',
   url: 'https://www.tuttomercatoweb.com/serie-a/',
-  kids: [],
-  dead: false,
-  parts: [],
-  deleted: false,
   parent: 0,
   text: 'Aggiornamenti in tempo reale, esclusive, probabili formazioni e retroscena dal mondo del calcio.',
   type: 'story',
