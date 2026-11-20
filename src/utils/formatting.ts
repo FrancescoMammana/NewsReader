@@ -9,17 +9,17 @@ export function toTimeAgoString(ts: number): string {
   const ms = normalizeEpochMs(ts);
   if (!ms) return '';
   const diffSec = Math.max(0, Math.floor((Date.now() - ms) / 1000));
-  if (diffSec < 60) return 'just now';
+  if (diffSec < 60) return 'proprio ora';
   const mins = Math.floor(diffSec / 60);
-  if (mins < 60) return `${mins}m ago`;
+  if (mins < 60) return `${mins}m fa`;
   const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
+  if (hours < 24) return `${hours}h fa`;
   const days = Math.floor(hours / 24);
-  if (days < 30) return `${days}d ago`;
+  if (days < 30) return `${days}g fa`;
   const months = Math.floor(days / 30);
-  if (months < 12) return `${months}mo ago`;
+  if (months < 12) return `${months} mesi fa`;
   const years = Math.floor(days / 365);
-  return `${years}y ago`;
+  return `${years}a fa`;
 }
 
 export function formatTimestamp(ts: number, format: DateDisplayFormat): string {

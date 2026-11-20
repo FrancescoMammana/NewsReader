@@ -17,7 +17,7 @@ export const CountdownReminder: React.FC = () => {
         className="flex-1 min-w-0 text-left truncate"
       >
         <span className="font-semibold mr-1.5" style={{ color: accentHex }}>
-          Pick up where you left off:
+          Riprendi da dove hai letto:
         </span>
         <span className="text-neutral-700 dark:text-neutral-200">{lastReadStory.title}</span>
       </button>
@@ -25,7 +25,7 @@ export const CountdownReminder: React.FC = () => {
         type="button"
         onClick={dismissReminder}
         className="p-1 rounded hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-400"
-        aria-label="Dismiss reminder"
+        aria-label="Chiudi promemoria"
       >
         <X className="w-3.5 h-3.5" />
       </button>

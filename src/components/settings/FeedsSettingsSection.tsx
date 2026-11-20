@@ -1,12 +1,13 @@
 import React, { useState } from 'react';
-import { ArrowDown, ArrowUp, Plus, RotateCcw, Rss, Trash2 } from 'lucide-react';
+import { ArrowDown, ArrowUp, Copy, Plus, RotateCcw, Rss, Trash2 } from 'lucide-react';
 import { type ConfiguredFeed, DEFAULT_CONFIGURED_FEEDS } from '../../types/tmw';
-import { useFeeds, useNavigation, usePreferences } from '../../context/AppContext';
+import { useFeeds, useNavigation, usePreferences, useToasts } from '../../context/AppContext';
 
 export const FeedsSettingsSection: React.FC = () => {
   const { preferences, updatePreference, accentHex } = usePreferences();
   const { addCustomFeed, removeFeed, restoreDefaultTmwFeeds } = useFeeds();
   const { setActiveTab } = useNavigation();
+  const { showToast } = useToasts();
 
   const [rssLabel, setRssLabel] = useState('');
   const [rssUrl, setRssUrl] = useState('');
@@ -106,6 +107,17 @@ export const FeedsSettingsSection: React.FC = () => {
                 <div className="text-[11px] text-neutral-500 truncate">{feed.url}</div>
               </button>
               <div className="flex items-center gap-0.5 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => {
+                    void navigator.clipboard.writeText(feed.url);
+                    showToast('URL RSS copiato negli appunti');
+                  }}
+                  title={`Copia URL di ${feed.label}`}
+                  className="p-1.5 rounded text-neutral-400 hover:text-neutral-900 dark:hover:text-white hover:bg-neutral-100 dark:hover:bg-neutral-800"
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                </button>
                 <button
                   type="button"
                   disabled={idx === 0}

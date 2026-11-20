@@ -27,6 +27,14 @@ const PLACEHOLDER_STORY: Story = {
   hidden: false,
 };
 
+const DATE_FORMAT_LABELS: Record<DateDisplayFormat, string> = {
+  timeAgo: 'Relativo (es. 5m fa)',
+  yMd: 'Data numerica standard',
+  yMEd: 'Con giorno della settimana',
+  yMMMd: 'Con mese abbreviato',
+  yMMMEd: 'Completo con giorno e mese',
+};
+
 export const AppearanceSettingsSection: React.FC = () => {
   const { preferences, updatePreference, accentHex } = usePreferences();
   const { clearReadStories } = useLibrary();
@@ -38,48 +46,48 @@ export const AppearanceSettingsSection: React.FC = () => {
   }> = [
     {
       key: 'isComplexStoryTileEnabled',
-      title: 'Complex Article Tile',
-      subtitle: 'Show thumbnail and excerpt in article tile.',
+      title: 'Riquadro articolo avanzato',
+      subtitle: 'Mostra miniatura e riassunto nel riquadro dell\'articolo.',
     },
     {
       key: 'isFaviconEnabled',
-      title: 'Show Favicon',
-      subtitle: 'Show site icon in compact article tile.',
+      title: 'Mostra Favicon',
+      subtitle: 'Mostra l\'icona del sito nel riquadro articolo compatto.',
     },
     {
       key: 'isMetadataEnabled',
-      title: 'Show Metadata',
-      subtitle: 'Show category, tag, and timestamp in article tile.',
+      title: 'Mostra Metadati',
+      subtitle: 'Mostra categoria, tag e ora nel riquadro dell\'articolo.',
     },
     {
       key: 'isMarkReadStoriesEnabled',
-      title: 'Mark Read Articles',
-      subtitle: 'Grey out articles you have read.',
+      title: 'Segna articoli letti',
+      subtitle: 'Sfuma gli articoli che hai già letto.',
     },
     {
       key: 'isAutoScrollEnabled',
-      title: 'Auto-scroll on Collapsing',
-      subtitle: 'Automatically scroll to next note when collapsing.',
+      title: 'Scorrimento automatico alla chiusura',
+      subtitle: 'Scorri automaticamente alla nota successiva quando la chiudi.',
     },
     {
       key: 'isTapAnywhereToCollapseEnabled',
-      title: 'Tap Anywhere to Collapse',
-      subtitle: 'If disabled, tap on the top header of note tile to collapse.',
+      title: 'Tocca ovunque per chiudere',
+      subtitle: 'Se disattivato, tocca l\'intestazione superiore della nota per chiuderla.',
     },
     {
       key: 'isManualPaginationEnabled',
-      title: 'Manual Pagination',
-      subtitle: 'Load next page manually with a button instead of auto-scrolling.',
+      title: 'Paginazione manuale',
+      subtitle: 'Carica la pagina successiva manualmente con un pulsante anziché con lo scorrimento automatico.',
     },
     {
       key: 'isEyeCandyEnabled',
-      title: 'Eye Candy',
-      subtitle: 'Subtle tinted note nesting backgrounds.',
+      title: 'Effetti visivi (Eye Candy)',
+      subtitle: 'Sfondi sfumati sottili per le note nidificate.',
     },
     {
       key: 'isTrueDarkModeEnabled',
-      title: 'True Dark Mode',
-      subtitle: 'Pure OLED black surface in dark mode.',
+      title: 'Modalità Scura Pura (True Dark)',
+      subtitle: 'Superficie nera OLED pura in modalità scura.',
     },
   ];
 
@@ -88,7 +96,7 @@ export const AppearanceSettingsSection: React.FC = () => {
       {/* Dropdowns & Layout */}
       <div className="p-4 space-y-4">
         <label className="block text-xs">
-          <span className="text-neutral-500 dark:text-neutral-400">Date time display</span>
+          <span className="text-neutral-500 dark:text-neutral-400">Formato data e ora</span>
           <select
             value={preferences.dateFormat}
             onChange={(e) => updatePreference('dateFormat', e.target.value as DateDisplayFormat)}
@@ -96,7 +104,7 @@ export const AppearanceSettingsSection: React.FC = () => {
           >
             {(['timeAgo', 'yMd', 'yMEd', 'yMMMd', 'yMMMEd'] as DateDisplayFormat[]).map((fmt) => (
               <option key={fmt} value={fmt} className="dark:bg-neutral-900">
-                {fmt} ({formatTimestamp(Math.floor(Date.now() / 1000) - 86400 * 5, fmt)})
+                {DATE_FORMAT_LABELS[fmt]} ({formatTimestamp(Math.floor(Date.now() / 1000) - 86400 * 5, fmt)})
               </option>
             ))}
           </select>
@@ -105,7 +113,7 @@ export const AppearanceSettingsSection: React.FC = () => {
         {/* Text Scale Factor */}
         <div>
           <div className="flex items-center justify-between text-xs mb-1">
-            <span className="text-neutral-500 dark:text-neutral-400">Text Scale Factor</span>
+            <span className="text-neutral-500 dark:text-neutral-400">Dimensione testo</span>
             <span className="tabular-nums font-medium">{preferences.textScaleFactor.toFixed(2)}x</span>
           </div>
           <input
@@ -123,7 +131,7 @@ export const AppearanceSettingsSection: React.FC = () => {
 
       {/* Live StoryTile Preview */}
       <div>
-        <div className="px-4 pt-2 text-xs text-neutral-400">Article Tile Preview</div>
+        <div className="px-4 pt-2 text-xs text-neutral-400">Anteprima riquadro articolo</div>
         <StoryTile
           story={PLACEHOLDER_STORY}
           onTap={() => window.open(PLACEHOLDER_STORY.url, '_blank', 'noopener,noreferrer')}
@@ -168,7 +176,7 @@ export const AppearanceSettingsSection: React.FC = () => {
               {item.key === 'isMarkReadStoriesEnabled' && (
                 <div className="px-4 pb-3">
                   <label className="block text-xs">
-                    <span className="text-neutral-500 dark:text-neutral-400">Mark as Read on</span>
+                    <span className="text-neutral-500 dark:text-neutral-400">Segna come letto tramite</span>
                     <select
                       disabled={!preferences.isMarkReadStoriesEnabled}
                       value={preferences.storyMarkingMode}
@@ -178,10 +186,10 @@ export const AppearanceSettingsSection: React.FC = () => {
                       className="mt-1 w-full px-2.5 py-1.5 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-transparent text-sm disabled:opacity-50"
                     >
                       <option value="tap" className="dark:bg-neutral-900">
-                        Tap
+                        Tocco
                       </option>
                       <option value="scroll" className="dark:bg-neutral-900">
-                        Scroll
+                        Scorrimento
                       </option>
                     </select>
                   </label>
@@ -195,7 +203,7 @@ export const AppearanceSettingsSection: React.FC = () => {
       {/* Appearance: Font, Theme, Accent Color */}
       <div className="p-4 space-y-4">
         <label className="block text-xs">
-          <span className="text-neutral-500 dark:text-neutral-400">Font</span>
+          <span className="text-neutral-500 dark:text-neutral-400">Carattere (Font)</span>
           <select
             value={preferences.font}
             onChange={(e) => updatePreference('font', e.target.value as FontOption)}
@@ -210,21 +218,21 @@ export const AppearanceSettingsSection: React.FC = () => {
         </label>
 
         <div>
-          <div className="text-xs text-neutral-500 dark:text-neutral-400 mb-1.5">Theme</div>
+          <div className="text-xs text-neutral-500 dark:text-neutral-400 mb-1.5">Tema</div>
           <div className="grid grid-cols-3 gap-2 text-xs font-medium">
             {(['light', 'dark', 'system'] as ThemeMode[]).map((mode) => (
               <button
                 key={mode}
                 type="button"
                 onClick={() => updatePreference('themeMode', mode)}
-                className={`py-2 rounded-lg border capitalize transition-colors ${
+                className={`py-2 rounded-lg border transition-colors ${
                   preferences.themeMode === mode
                     ? 'text-white border-transparent'
                     : 'border-neutral-200 dark:border-neutral-800 hover:bg-neutral-100 dark:hover:bg-neutral-800'
                 }`}
                 style={preferences.themeMode === mode ? { backgroundColor: accentHex } : undefined}
               >
-                {mode}
+                {mode === 'light' ? 'Chiaro' : mode === 'dark' ? 'Scuro' : 'Sistema'}
               </button>
             ))}
           </div>

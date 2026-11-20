@@ -210,32 +210,36 @@ rssRouter.get('/api/rss/article', async (req: Request, res: Response) => {
     const publishedTime = jsonLd.publishedTime || initialPublishedTime;
 
     const container =
-      $('article').first().length > 0
-        ? $('article').first().clone()
-        : $('main, [role="main"], .post-content, .entry-content, .article-body').first().length > 0
-          ? $('main, [role="main"], .post-content, .entry-content, .article-body').first().clone()
-          : $('body').first().clone();
+      $('.prose, .article-content, .post-content, .entry-content, .article-body').first().length > 0
+        ? $('.prose, .article-content, .post-content, .entry-content, .article-body').first().clone()
+        : $('article').first().length > 0
+          ? $('article').first().clone()
+          : $('main, [role="main"]').first().length > 0
+            ? $('main, [role="main"]').first().clone()
+            : $('body').first().clone();
 
     container
       .find('script, style, nav, aside, footer, header, form, iframe, ins, [class*="cookie"], [class*="banner"]')
       .remove();
 
     const blocks: string[] = [];
-    container.find('p, h2, h3, blockquote, li').each((_, el) => {
+    container.find('p, h2, h3, h4, blockquote, li, pre').each((_, el) => {
       const node = $(el);
       const tag = el.tagName?.toLowerCase();
       const content = node.text().replace(/\s+/g, ' ').trim();
-      if (!content || content.length < 18) return;
-      if (tag === 'h2' || tag === 'h3') {
+      if (!content || content.length < 3) return;
+      if (tag === 'h2' || tag === 'h3' || tag === 'h4' || tag === 'h1') {
         blocks.push(`**${content}**`);
       } else if (tag === 'blockquote') {
         blocks.push(`> ${content}`);
+      } else if (tag === 'li') {
+        blocks.push(`- ${content}`);
       } else {
         blocks.push(content);
       }
     });
 
-    const bodyText = Array.from(new Set(blocks)).join('\n\n') || subtitle;
+    const bodyText = jsonLd.articleBody || Array.from(new Set(blocks)).join('\n\n') || subtitle;
     const host = new URL(targetUrl).hostname.replace(/^www\./, '');
 
     const article: TmwStoryDto = {

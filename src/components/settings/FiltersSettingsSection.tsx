@@ -9,9 +9,9 @@ export const FiltersSettingsSection: React.FC = () => {
 
   return (
     <div className="p-4 space-y-2.5">
-      <div className="text-sm font-medium">Filter Keywords</div>
+      <div className="text-sm font-medium">Parole chiave filtro</div>
       <p className="text-xs text-neutral-500 dark:text-neutral-400">
-        Articles containing any of these keywords will be hidden.
+        Gli articoli contenenti queste parole chiave verranno nascosti.
       </p>
       <form
         onSubmit={(e) => {
@@ -27,7 +27,7 @@ export const FiltersSettingsSection: React.FC = () => {
           type="text"
           value={newKeyword}
           onChange={(e) => setNewKeyword(e.target.value)}
-          placeholder="Add keyword (e.g. Serie C)..."
+          placeholder="Aggiungi parola chiave (es. Calciomercato)..."
           className="flex-1 px-3 py-1.5 text-sm rounded-lg border border-neutral-200 dark:border-neutral-800 bg-transparent focus:outline-none"
         />
         <button
@@ -36,7 +36,7 @@ export const FiltersSettingsSection: React.FC = () => {
           style={{ backgroundColor: accentHex }}
         >
           <Plus className="w-3.5 h-3.5" />
-          <span>Add</span>
+          <span>Aggiungi</span>
         </button>
       </form>
       {filterKeywords.length > 0 && (

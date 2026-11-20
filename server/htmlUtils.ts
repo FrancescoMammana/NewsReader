@@ -117,6 +117,7 @@ export interface JsonLdArticleMeta {
   category?: string;
   image?: string;
   publishedTime?: number;
+  articleBody?: string;
 }
 
 export function extractJsonLdArticleMeta(
@@ -143,6 +144,9 @@ export function extractJsonLdArticleMeta(
           }
           if (typeof node.articleSection === 'string' && node.articleSection.trim()) {
             result.category = node.articleSection.trim();
+          }
+          if (typeof node.articleBody === 'string' && node.articleBody.trim()) {
+            result.articleBody = node.articleBody.trim();
           }
           if (typeof node.datePublished === 'string') {
             const parsed = Date.parse(node.datePublished);
