@@ -19,3 +19,22 @@ export function mergeFullArticle(base: Story, full: Story): Story {
     label: base.label || full.label,
   };
 }
+
+export function mergeStoryRichness(existing: Story | undefined, incoming: Story): Story {
+  if (!existing) return incoming;
+  const existingTextLen = (existing.text || '').length;
+  const incomingTextLen = (incoming.text || '').length;
+  return {
+    ...existing,
+    ...incoming,
+    id: existing.id || incoming.id,
+    url: existing.url || incoming.url,
+    title: incoming.title || existing.title,
+    text: incomingTextLen >= existingTextLen ? incoming.text : existing.text,
+    subtitle: incoming.subtitle || existing.subtitle,
+    image: incoming.image || existing.image,
+    category: incoming.category || existing.category,
+    label: incoming.label || existing.label,
+  };
+}
+

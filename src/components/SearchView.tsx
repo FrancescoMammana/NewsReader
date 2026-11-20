@@ -1,20 +1,10 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Calendar, Search as SearchIcon, X } from 'lucide-react';
-import type { SearchParams, Story } from '../types/tmw';
-import { offlineDb } from '../services/offlineDb';
-import { useApp } from '../context/AppContext';
+import { useFeeds, useLibrary, useNavigation, usePreferences } from '../context/AppContext';
+import { useArticleSearch } from '../hooks/useArticleSearch';
 import { StoryTile } from './StoryTile';
 
 const PAGE_SIZE = 30;
-
-const INITIAL_PARAMS: SearchParams = {
-  query: '',
-  page: 0,
-  sorted: false,
-  exactMatch: false,
-  startTime: null,
-  endTime: null,
-};
 
 const QUICK_RANGES = [
   { label: 'Ultime 24h', days: 1 },
@@ -22,122 +12,19 @@ const QUICK_RANGES = [
   { label: 'Ultimo mese', days: 30 },
 ];
 
-function mergeStoryRichness(existing: Story | undefined, incoming: Story): Story {
-  if (!existing) return incoming;
-  const existingTextLen = (existing.text || '').length;
-  const incomingTextLen = (incoming.text || '').length;
-  return {
-    ...existing,
-    ...incoming,
-    id: existing.id || incoming.id,
-    url: existing.url || incoming.url,
-    title: incoming.title || existing.title,
-    text: incomingTextLen >= existingTextLen ? incoming.text : existing.text,
-    subtitle: incoming.subtitle || existing.subtitle,
-    image: incoming.image || existing.image,
-    category: incoming.category || existing.category,
-    label: incoming.label || existing.label,
-  };
-}
-
 export const SearchView: React.FC = () => {
-  const { preferences, accentHex, openItem, feeds, pinnedStories, favItems } = useApp();
-  const [params, setParams] = useState<SearchParams>(INITIAL_PARAMS);
-  const [allMatches, setAllMatches] = useState<Story[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [hasSearched, setHasSearched] = useState(false);
+  const { preferences, accentHex } = usePreferences();
+  const { openItem } = useNavigation();
+  const { feeds } = useFeeds();
+  const { pinnedStories, favItems } = useLibrary();
+
+  const { params, setParams, allMatches, loading, hasSearched, runSearch } = useArticleSearch({
+    feeds,
+    pinnedStories,
+    favItems,
+  });
+
   const [dateModalOpen, setDateModalOpen] = useState(false);
-
-  const runSearch = useCallback(
-    async (nextParams: SearchParams) => {
-      const hasFilter =
-        Boolean(nextParams.query.trim()) || nextParams.startTime !== null;
-
-      if (!hasFilter) {
-        setAllMatches([]);
-        setHasSearched(false);
-        return;
-      }
-
-      setLoading(true);
-      setHasSearched(true);
-      try {
-        const [cachedFeeds, cachedArticles] = await Promise.all([
-          offlineDb.getAllFeedStories(),
-          offlineDb.getAllArticles(),
-        ]);
-
-        const poolMap = new Map<string, Story>();
-        const addAll = (list: Story[]) => {
-          for (const item of list) {
-            if (!item || typeof item.id !== 'number') continue;
-            const key = item.url?.trim() || `id:${item.id}`;
-            poolMap.set(key, mergeStoryRichness(poolMap.get(key), item));
-          }
-        };
-
-        addAll(cachedFeeds);
-        addAll(Object.values(feeds).flatMap((b) => b.stories));
-        addAll(pinnedStories);
-        addAll(favItems.filter((i): i is Story => i.type !== 'comment'));
-        addAll(cachedArticles);
-
-        let results = Array.from(poolMap.values()).filter((s) => !s.hidden);
-
-        const rawQuery = nextParams.query.trim().toLowerCase();
-        if (rawQuery) {
-          if (nextParams.exactMatch) {
-            results = results.filter((s) => s.title.toLowerCase().includes(rawQuery));
-          } else {
-            const tokens = rawQuery.split(/\s+/).filter(Boolean);
-            results = results.filter((s) => {
-              const haystack = [
-                s.title,
-                s.subtitle,
-                s.text,
-                s.by,
-                s.category,
-                s.label,
-                s.url,
-              ]
-                .filter(Boolean)
-                .join(' ')
-                .toLowerCase();
-              return tokens.every((tok) => haystack.includes(tok));
-            });
-          }
-        }
-
-        if (nextParams.startTime !== null) {
-          const startSec = Math.floor(nextParams.startTime / 1000);
-          const rawEnd = nextParams.endTime ?? Date.now();
-          let endSec = Math.floor(rawEnd / 1000);
-          if (endSec <= startSec) {
-            endSec = startSec + 86400;
-          }
-          results = results.filter((s) => s.time >= startSec && s.time <= endSec);
-        }
-
-        if (nextParams.sorted || !rawQuery) {
-          results.sort((a, b) => b.time - a.time);
-        } else {
-          results.sort((a, b) => {
-            const aTitle = a.title.toLowerCase().includes(rawQuery) ? 1 : 0;
-            const bTitle = b.title.toLowerCase().includes(rawQuery) ? 1 : 0;
-            if (aTitle !== bTitle) return bTitle - aTitle;
-            return b.time - a.time;
-          });
-        }
-
-        setAllMatches(results);
-      } catch {
-        setAllMatches([]);
-      } finally {
-        setLoading(false);
-      }
-    },
-    [feeds, pinnedStories, favItems],
-  );
 
   useEffect(() => {
     const timer = setTimeout(() => {
