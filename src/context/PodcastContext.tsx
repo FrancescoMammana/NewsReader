@@ -10,6 +10,7 @@ import React, {
 import type { PodcastEpisode, Story, StoryType } from '../types/tmw';
 import { fetchPodcastStatus, fetchTmwArticle, generatePodcastApi } from '../services/tmwApi';
 import { offlineDb } from '../services/offlineDb';
+import { storage } from '../services/storage';
 import { mergeFullArticle } from '../utils/articleMerge';
 import { useFeeds } from './FeedsContext';
 import { useLibrary } from './LibraryContext';
@@ -22,6 +23,7 @@ export interface PodcastContextValue {
   podcastGeneratingForFeed: string | null;
   generateFeedPodcast: (feedId: StoryType, forceRegenerate?: boolean) => Promise<void>;
   closePodcastPlayer: () => void;
+  checkPodcastStatus: () => Promise<boolean>;
 }
 
 const PodcastContext = createContext<PodcastContextValue | null>(null);
@@ -35,18 +37,69 @@ export const PodcastProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const configuredFeedsRef = useRef(preferences.configuredFeeds);
   configuredFeedsRef.current = preferences.configuredFeeds;
 
-  const [podcastAvailable, setPodcastAvailable] = useState(false);
+  const [podcastAvailable, setPodcastAvailable] = useState<boolean>(() => {
+    return storage.getPodcastAvailable() ?? false;
+  });
   const [activePodcast, setActivePodcast] = useState<PodcastEpisode | null>(null);
   const [podcastGeneratingForFeed, setPodcastGeneratingForFeed] = useState<string | null>(null);
   const podcastBusyRef = useRef(false);
 
+  const checkPodcastStatus = useCallback(async (): Promise<boolean> => {
+    try {
+      const available = await fetchPodcastStatus();
+      setPodcastAvailable(available);
+      storage.savePodcastAvailable(available);
+      return available;
+    } catch {
+      // Keep last known state on transient network failure or offline
+      return storage.getPodcastAvailable() ?? false;
+    }
+  }, []);
+
   useEffect(() => {
     let active = true;
-    void fetchPodcastStatus().then((available) => {
-      if (active) setPodcastAvailable(available);
-    });
+
+    const runCheck = async () => {
+      try {
+        const available = await fetchPodcastStatus();
+        if (active) {
+          setPodcastAvailable(available);
+          storage.savePodcastAvailable(available);
+        }
+      } catch {
+        // Keep last known available state on network glitch
+      }
+    };
+
+    void runCheck();
+
+    // Auto-retry after 2.5s and 6s (e.g. server spin-up or network reconnect)
+    const timer1 = setTimeout(() => {
+      if (active) void runCheck();
+    }, 2500);
+
+    const timer2 = setTimeout(() => {
+      if (active) void runCheck();
+    }, 6000);
+
+    // Re-verify on user return, tab visibility, or when device reconnects
+    const handleRecheck = () => {
+      if (document.visibilityState === 'visible' || navigator.onLine) {
+        void runCheck();
+      }
+    };
+
+    window.addEventListener('visibilitychange', handleRecheck);
+    window.addEventListener('online', handleRecheck);
+    window.addEventListener('focus', handleRecheck);
+
     return () => {
       active = false;
+      clearTimeout(timer1);
+      clearTimeout(timer2);
+      window.removeEventListener('visibilitychange', handleRecheck);
+      window.removeEventListener('online', handleRecheck);
+      window.removeEventListener('focus', handleRecheck);
     };
   }, []);
 
@@ -180,6 +233,7 @@ export const PodcastProvider: React.FC<{ children: React.ReactNode }> = ({ child
       podcastGeneratingForFeed,
       generateFeedPodcast,
       closePodcastPlayer,
+      checkPodcastStatus,
     }),
     [
       podcastAvailable,
@@ -187,6 +241,7 @@ export const PodcastProvider: React.FC<{ children: React.ReactNode }> = ({ child
       podcastGeneratingForFeed,
       generateFeedPodcast,
       closePodcastPlayer,
+      checkPodcastStatus,
     ],
   );
 

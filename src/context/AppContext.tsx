@@ -89,6 +89,7 @@ interface AppContextValue {
   podcastGeneratingForFeed: string | null;
   generateFeedPodcast: (feedId: StoryType, forceRegenerate?: boolean) => Promise<void>;
   closePodcastPlayer: () => void;
+  checkPodcastStatus: () => Promise<boolean>;
 }
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -185,6 +186,7 @@ export function useApp(): AppContextValue {
       podcastGeneratingForFeed: podcast.podcastGeneratingForFeed,
       generateFeedPodcast: podcast.generateFeedPodcast,
       closePodcastPlayer: podcast.closePodcastPlayer,
+      checkPodcastStatus: podcast.checkPodcastStatus,
     }),
     [
       preferences,

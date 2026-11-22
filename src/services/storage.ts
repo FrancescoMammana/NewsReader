@@ -19,6 +19,7 @@ const KEYS = {
   FILTER_KEYWORDS: 'tmw_filter_keywords_v1',
   BLOCKLIST: 'tmw_blocklist_v1',
   LAST_READ_STORY: 'tmw_last_read_story_v1',
+  PODCAST_AVAILABLE: 'tmw_podcast_available_v1',
   NOTES: 'tmw_article_notes_v1',
   DRAFTS: 'tmw_drafts_v1',
   PREVIEW_CACHE: 'tmw_preview_cache_v1',
@@ -214,6 +215,13 @@ export const storage = {
     } else {
       writeJson(KEYS.LAST_READ_STORY, story);
     }
+  },
+
+  getPodcastAvailable(): boolean | null {
+    return readJson<boolean | null>(KEYS.PODCAST_AVAILABLE, null);
+  },
+  savePodcastAvailable(available: boolean): void {
+    writeJson(KEYS.PODCAST_AVAILABLE, available);
   },
 
   getArticleNotes(articleId: number): Comment[] {

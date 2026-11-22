@@ -65,9 +65,9 @@ aiQuestionRouter.post('/api/gemini/qa', async (req: Request, res: Response) => {
       contents: prompt,
       config: {
         systemInstruction:
-          "Sei un assistente IA sintetico e diretto. Rispondi alla domanda dell'utente basandoti ESCLUSIVAMENTE sul testo dell'articolo fornito. Se l'informazione non è nell'articolo, di' chiaramente che non è menzionata. Sii conciso e vai dritto al punto.",
-        maxOutputTokens: 400,
-        temperature: 0.2,
+          "Sei un assistente IA utile, conciso e diretto. L'articolo e il titolo forniti costituiscono il contesto e il punto di partenza della conversazione. Rispondi alle domande dell'utente in modo chiaro e pertinente: quando la domanda richiede spiegazioni, dettagli tecnici, contesti o approfondimenti non presenti direttamente nel testo (ad esempio tempi di recupero per un infortunio, requisiti hardware, definizioni o retroscena sui soggetti citati), rispondi usando liberamente le tue conoscenze generali. Mantieni sempre la risposta sintetica, focalizzata ed evita preamboli o convenevoli.",
+        maxOutputTokens: 500,
+        temperature: 0.5,
       },
     });
 

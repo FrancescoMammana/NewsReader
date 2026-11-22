@@ -9,6 +9,7 @@ import {
   Pin,
   PinOff,
   RefreshCw,
+  Share2,
   Type,
 } from 'lucide-react';
 import { FONT_SIZE_OPTIONS, type FontSizeOption } from '../types/tmw';
@@ -25,6 +26,7 @@ interface ItemToolbarProps {
   onTogglePin: () => void;
   faved: boolean;
   onToggleFav: () => void;
+  onShare: () => void;
   loading: boolean;
   onReload: () => void;
   offlineReady: boolean;
@@ -43,6 +45,7 @@ export const ItemToolbar: React.FC<ItemToolbarProps> = ({
   onTogglePin,
   faved,
   onToggleFav,
+  onShare,
   loading,
   onReload,
   offlineReady,
@@ -132,6 +135,16 @@ export const ItemToolbar: React.FC<ItemToolbarProps> = ({
             className={`w-4 h-4 ${faved ? 'fill-current' : ''}`}
             style={faved ? { color: accentHex } : undefined}
           />
+        </button>
+
+        <button
+          type="button"
+          onClick={onShare}
+          className="p-2 rounded-lg hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-700 dark:text-neutral-200"
+          title="Condividi articolo"
+          aria-label="Condividi articolo"
+        >
+          <Share2 className="w-4 h-4" />
         </button>
 
         <button

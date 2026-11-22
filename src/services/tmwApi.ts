@@ -32,7 +32,7 @@ export async function fetchTmwFeed(
   start = 0,
 ): Promise<{ stories: Story[]; nextStart: number | null }> {
   return fetchJson<{ stories: Story[]; nextStart: number | null }>(
-    `/api/tmw/feed?category=${encodeURIComponent(type)}&start=${start}`,
+    `/api/tmw/feed?category=${encodeURIComponent(type)}&start=${start}&_t=${Date.now()}`,
     { fallbackError: 'Failed to load TuttoMercatoWeb feed' },
   );
 }
@@ -41,7 +41,7 @@ export async function fetchCustomRssFeed(
   url: string,
   label?: string,
 ): Promise<{ feedTitle?: string; stories: Story[]; nextStart: number | null }> {
-  const sp = new URLSearchParams({ url });
+  const sp = new URLSearchParams({ url, _t: String(Date.now()) });
   if (label) sp.set('label', label);
   const data = await fetchJson<{ feedTitle?: string; stories?: Story[] }>(
     `/api/rss/feed?${sp.toString()}`,
@@ -94,14 +94,10 @@ export interface GeneratePodcastResponse {
 }
 
 export async function fetchPodcastStatus(): Promise<boolean> {
-  try {
-    const data = await fetchJson<{ available?: boolean }>('/api/podcast/status', {
-      timeoutMs: 8000,
-    });
-    return Boolean(data.available);
-  } catch {
-    return false;
-  }
+  const data = await fetchJson<{ available?: boolean }>(`/api/podcast/status?_t=${Date.now()}`, {
+    timeoutMs: 6000,
+  });
+  return Boolean(data.available);
 }
 
 export async function generatePodcastApi(

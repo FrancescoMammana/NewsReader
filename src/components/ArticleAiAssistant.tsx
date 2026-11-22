@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Bot, Loader2, Send, Sparkles } from 'lucide-react';
+import { Bot, Loader2, RotateCcw, Send, Sparkles, X } from 'lucide-react';
+import { useApp } from '../context/AppContext';
 import type { Story } from '../types/tmw';
-import { usePreferences } from '../context/AppContext';
 
 interface ArticleAiAssistantProps {
   article: Story;
@@ -13,37 +13,34 @@ interface ChatMessage {
 }
 
 export const ArticleAiAssistant: React.FC<ArticleAiAssistantProps> = ({ article }) => {
-  const { accentHex } = usePreferences();
-  const [available, setAvailable] = useState<boolean | null>(null);
+  const { accentHex, podcastAvailable } = useApp();
+  const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const chatScrollRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    let mounted = true;
-    fetch('/api/gemini/status')
-      .then((res) => res.json())
-      .then((data: { available?: boolean }) => {
-        if (mounted) {
-          setAvailable(Boolean(data?.available));
-        }
-      })
-      .catch(() => {
-        if (mounted) setAvailable(false);
-      });
-    return () => {
-      mounted = false;
-    };
-  }, []);
+    setOpen(false);
+    setMessages([]);
+    setInput('');
+    setLoading(false);
+  }, [article.id]);
+
+  useEffect(() => {
+    if (open) {
+      inputRef.current?.focus();
+    }
+  }, [open]);
 
   useEffect(() => {
     if (chatScrollRef.current) {
       chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
     }
-  }, [messages, loading]);
+  }, [messages, loading, open]);
 
-  if (available === null || available === false) {
+  if (!podcastAvailable) {
     return null;
   }
 
@@ -87,28 +84,71 @@ export const ArticleAiAssistant: React.FC<ArticleAiAssistantProps> = ({ article 
     }
   };
 
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        aria-label="Chiedi all'AI"
+        title="Chiedi all'AI"
+        className="absolute bottom-4 right-4 z-20 w-11 h-11 rounded-full text-white shadow-lg flex items-center justify-center transition-transform hover:scale-105 active:scale-95 cursor-pointer"
+        style={{ backgroundColor: accentHex }}
+      >
+        <Sparkles className="w-5 h-5" />
+        {messages.length > 0 && (
+          <span className="absolute -top-0.5 -right-0.5 w-3 h-3 rounded-full bg-emerald-400 ring-2 ring-white dark:ring-neutral-950" />
+        )}
+      </button>
+    );
+  }
+
   return (
-    <div className="mt-6 border-t border-neutral-200 dark:border-neutral-800 pt-4 px-1">
-      <div className="flex items-center gap-2 mb-3">
-        <Sparkles className="w-4 h-4" style={{ color: accentHex }} />
-        <span className="text-xs font-semibold tracking-wide uppercase text-neutral-600 dark:text-neutral-300">
-          Assistente IA · Chiedi sull'articolo
-        </span>
+    <div className="absolute bottom-4 right-4 left-4 sm:left-auto sm:w-96 z-30 rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-white/95 dark:bg-neutral-900/95 backdrop-blur shadow-2xl overflow-hidden flex flex-col">
+      <div className="px-3.5 py-2.5 border-b border-neutral-200/80 dark:border-neutral-800 flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 min-w-0">
+          <Sparkles className="w-4 h-4 shrink-0" style={{ color: accentHex }} />
+          <span className="text-xs font-semibold text-neutral-800 dark:text-neutral-100 truncate">
+            Chiedi all&apos;AI
+          </span>
+        </div>
+        <div className="flex items-center gap-1 shrink-0">
+          {messages.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setMessages([])}
+              disabled={loading}
+              title="Nuova chat"
+              aria-label="Nuova chat"
+              className="p-1.5 rounded-lg text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-800 disabled:opacity-40 cursor-pointer"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => setOpen(false)}
+            title="Chiudi"
+            aria-label="Chiudi"
+            className="p-1.5 rounded-lg text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-800 cursor-pointer"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
       </div>
 
       {messages.length > 0 && (
         <div
           ref={chatScrollRef}
-          className="max-h-72 overflow-y-auto space-y-3 mb-3 p-3 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-900/60 text-xs leading-relaxed"
+          className="max-h-72 overflow-y-auto p-3 space-y-2.5 bg-neutral-50/70 dark:bg-neutral-950/40 text-xs leading-relaxed"
         >
           {messages.map((m, idx) => (
             <div
               key={idx}
-              className={`flex gap-2.5 ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}
+              className={`flex gap-2 ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}
             >
               {m.role === 'assistant' && (
                 <div
-                  className="w-6 h-6 rounded-full flex items-center justify-center shrink-0 text-white"
+                  className="w-6 h-6 rounded-full flex items-center justify-center shrink-0 text-white mt-0.5"
                   style={{ backgroundColor: accentHex }}
                 >
                   <Bot className="w-3.5 h-3.5" />
@@ -128,29 +168,33 @@ export const ArticleAiAssistant: React.FC<ArticleAiAssistantProps> = ({ article 
           {loading && (
             <div className="flex items-center gap-2 text-neutral-400 italic text-xs py-1">
               <Loader2 className="w-3.5 h-3.5 animate-spin" style={{ color: accentHex }} />
-              <span>L'IA sta elaborando la risposta...</span>
+              <span>Elaborazione risposta...</span>
             </div>
           )}
         </div>
       )}
 
-      <form onSubmit={handleSend} className="flex gap-2">
+      <form
+        onSubmit={handleSend}
+        className="p-2.5 border-t border-neutral-200/80 dark:border-neutral-800 flex items-center gap-2"
+      >
         <input
+          ref={inputRef}
           type="text"
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder="Fai una domanda su questo articolo..."
+          placeholder="Chiedi all'AI..."
           disabled={loading}
-          className="flex-1 px-3.5 py-2 text-xs rounded-xl border border-neutral-200 dark:border-neutral-800 bg-transparent focus:outline-none focus:ring-1 focus:ring-current"
+          className="flex-1 min-w-0 px-3 py-2 text-xs rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 focus:outline-none focus:ring-1 focus:ring-current"
         />
         <button
           type="submit"
           disabled={!input.trim() || loading}
-          className="px-4 py-2 rounded-xl text-white text-xs font-medium flex items-center gap-1.5 disabled:opacity-50 shrink-0 shadow-sm transition-transform active:scale-95"
+          aria-label="Invia domanda"
+          className="p-2 rounded-xl text-white flex items-center justify-center disabled:opacity-40 shrink-0 shadow-sm transition-transform active:scale-95 cursor-pointer"
           style={{ backgroundColor: accentHex }}
         >
-          {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
-          <span>Invia</span>
+          {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
         </button>
       </form>
     </div>

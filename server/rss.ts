@@ -25,8 +25,11 @@ rssRouter.get('/api/rss/feed', async (req: Request, res: Response) => {
     const response = await fetch(targetUrl, {
       signal: AbortSignal.timeout(10000),
       redirect: 'follow',
+      cache: 'no-store',
       headers: {
         'User-Agent': USER_AGENT,
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        Pragma: 'no-cache',
         Accept: 'application/rss+xml, application/atom+xml, application/xml, text/xml;q=0.9, */*;q=0.8',
       },
     });
@@ -143,6 +146,7 @@ rssRouter.get('/api/rss/feed', async (req: Request, res: Response) => {
       });
     });
 
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
     res.json({ feedTitle, stories: stories.slice(0, 60) });
   } catch {
     res.status(502).json({ error: 'Impossibile raggiungere o leggere il feed RSS' });

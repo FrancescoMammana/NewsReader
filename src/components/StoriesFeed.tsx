@@ -9,7 +9,7 @@ interface StoriesFeedProps {
   storyType: StoryType;
 }
 
-const PULL_THRESHOLD_PX = 56;
+const PULL_THRESHOLD_PX = 44;
 
 export const StoriesFeed: React.FC<StoriesFeedProps> = ({ storyType }) => {
   const {
@@ -36,10 +36,12 @@ export const StoriesFeed: React.FC<StoriesFeedProps> = ({ storyType }) => {
   const bucket = feeds[storyType] ?? EMPTY_FEED_BUCKET;
   const scrollRef = useRef<HTMLDivElement>(null);
   const touchStartYRef = useRef<number | null>(null);
+  const pullDistanceRef = useRef(0);
   const [pullDistance, setPullDistance] = useState(0);
 
   useEffect(() => {
     setPullDistance(0);
+    pullDistanceRef.current = 0;
     touchStartYRef.current = null;
     ensureFeedLoaded(storyType);
   }, [storyType, ensureFeedLoaded]);
@@ -64,33 +66,39 @@ export const StoriesFeed: React.FC<StoriesFeedProps> = ({ storyType }) => {
 
   const handleTouchStart = (e: React.TouchEvent<HTMLDivElement>) => {
     const el = scrollRef.current;
-    if (!el || el.scrollTop > 0 || bucket.loading || e.touches.length !== 1) {
+    if (!el || el.scrollTop > 5 || bucket.loading || e.touches.length !== 1) {
       touchStartYRef.current = null;
+      pullDistanceRef.current = 0;
       return;
     }
     touchStartYRef.current = e.touches[0].clientY;
+    pullDistanceRef.current = 0;
   };
 
   const handleTouchMove = (e: React.TouchEvent<HTMLDivElement>) => {
     if (touchStartYRef.current === null || e.touches.length !== 1) return;
     const el = scrollRef.current;
-    if (!el || el.scrollTop > 0) {
+    if (!el) return;
+    if (el.scrollTop > 5 && pullDistanceRef.current === 0) {
       touchStartYRef.current = null;
       setPullDistance(0);
       return;
     }
     const delta = e.touches[0].clientY - touchStartYRef.current;
-    if (delta > 0) {
-      setPullDistance(Math.min(84, delta * 0.5));
+    if (delta > 0 && el.scrollTop <= 0) {
+      const dist = Math.min(76, delta * 0.45);
+      pullDistanceRef.current = dist;
+      setPullDistance(dist);
     } else {
+      pullDistanceRef.current = 0;
       setPullDistance(0);
     }
   };
 
   const handleTouchEnd = () => {
-    if (touchStartYRef.current === null) return;
-    const shouldRefresh = pullDistance >= PULL_THRESHOLD_PX;
+    const shouldRefresh = pullDistanceRef.current >= PULL_THRESHOLD_PX;
     touchStartYRef.current = null;
+    pullDistanceRef.current = 0;
     setPullDistance(0);
     if (shouldRefresh && !bucket.loading) {
       void refreshFeed(storyType);
@@ -166,6 +174,13 @@ export const StoriesFeed: React.FC<StoriesFeedProps> = ({ storyType }) => {
                 ? 'Rilascia per aggiornare'
                 : 'Trascina per aggiornare'}
             </span>
+          </div>
+        )}
+
+        {bucket.loading && bucket.stories.length > 0 && (
+          <div className="py-2.5 px-3 border-b border-neutral-200/70 dark:border-neutral-800/80 bg-neutral-50 dark:bg-neutral-900/50 flex items-center justify-center gap-2 text-xs text-neutral-600 dark:text-neutral-300">
+            <RefreshCw className="w-3.5 h-3.5 animate-spin" style={{ color: accentHex }} />
+            <span>Aggiornamento articoli in corso...</span>
           </div>
         )}
         {/* Pinned Stories */}

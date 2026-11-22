@@ -329,6 +329,7 @@ tmwRouter.get('/api/tmw/feed', async (req: Request, res: Response) => {
       };
     });
 
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
     res.json({ stories, nextStart: stories.length > 0 ? start + stories.length : null });
   } catch {
     res.status(502).json({ error: 'Failed to reach TuttoMercatoWeb' });

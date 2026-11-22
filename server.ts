@@ -57,6 +57,7 @@ app.use(linkPreviewRouter);
 app.use(aiQuestionRouter);
 
 app.get('/api/podcast/status', (_req: Request, res: Response) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
   res.json({ available: isPodcastAvailable() });
 });
 

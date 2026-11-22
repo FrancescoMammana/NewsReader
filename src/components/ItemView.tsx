@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef } from 'react';
 import { ExternalLink } from 'lucide-react';
 import { FONT_SIZE_OPTIONS, type FontSizeOption, type ItemScreenArgs } from '../types/tmw';
-import { useLibrary, useNavigation, usePreferences } from '../context/AppContext';
+import { useLibrary, useNavigation, usePreferences, useToasts } from '../context/AppContext';
 import { useArticleLoader } from '../hooks/useArticleLoader';
 import { formatTimestamp, getReadableUrl } from '../utils/formatting';
 import { ArticleAiAssistant } from './ArticleAiAssistant';
@@ -15,6 +15,7 @@ interface ItemViewProps {
 
 export const ItemView: React.FC<ItemViewProps> = ({ args, isSplitView }) => {
   const { preferences, updatePreference, accentHex } = usePreferences();
+  const { showToast } = useToasts();
   const { isFav, toggleFav, isPinned, togglePin, isOfflineCached, cacheArticleOffline } =
     useLibrary();
   const {
@@ -46,6 +47,37 @@ export const ItemView: React.FC<ItemViewProps> = ({ args, isSplitView }) => {
   const pinned = isPinned(article.id);
   const offlineReady = isOfflineCached(article.id, article.url);
 
+  const handleShare = async () => {
+    const shareUrl = article.url || window.location.href;
+    const shareData = {
+      title: article.title || 'NewsReader',
+      text: article.subtitle || article.title || undefined,
+      url: shareUrl,
+    };
+
+    if (
+      typeof navigator !== 'undefined' &&
+      typeof navigator.share === 'function' &&
+      (!navigator.canShare || navigator.canShare(shareData))
+    ) {
+      try {
+        await navigator.share(shareData);
+        return;
+      } catch (err: unknown) {
+        if (err instanceof Error && err.name === 'AbortError') {
+          return;
+        }
+      }
+    }
+
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      showToast('Link copiato negli appunti');
+    } catch {
+      showToast('Impossibile condividere il link', { variant: 'error' });
+    }
+  };
+
   return (
     <div className="relative flex flex-col h-full bg-white dark:bg-neutral-950">
       <ItemToolbar
@@ -60,14 +92,15 @@ export const ItemView: React.FC<ItemViewProps> = ({ args, isSplitView }) => {
         onTogglePin={() => togglePin(article)}
         faved={faved}
         onToggleFav={() => toggleFav(article)}
+        onShare={handleShare}
         loading={loading}
         onReload={() => void reloadArticle()}
         offlineReady={offlineReady}
         accentHex={accentHex}
       />
 
-      {/* Main Scrollable Article & AI Assistant */}
-      <div ref={scrollContainerRef} className="flex-1 overflow-y-auto pb-28">
+      {/* Main Scrollable Article */}
+      <div ref={scrollContainerRef} className="flex-1 overflow-y-auto pb-20">
         <div className="max-w-3xl mx-auto px-4 py-4 border-b border-neutral-200 dark:border-neutral-800">
           <div className="flex items-center justify-between text-xs mb-2.5 gap-2">
             <div className="flex items-center gap-2 min-w-0">
@@ -154,9 +187,6 @@ export const ItemView: React.FC<ItemViewProps> = ({ args, isSplitView }) => {
               </a>
             </div>
           )}
-
-          {/* AI Assistant Chat Section */}
-          <ArticleAiAssistant article={article} />
         </div>
 
         {/* Related Articles */}
@@ -193,6 +223,8 @@ export const ItemView: React.FC<ItemViewProps> = ({ args, isSplitView }) => {
           </div>
         )}
       </div>
+
+      <ArticleAiAssistant article={article} />
     </div>
   );
 };
