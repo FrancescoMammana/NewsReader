@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { offlineDb } from '../services/offlineDb';
+import { getAudioExtensionFromMime } from '../utils/formatting';
 
 const PLAYBACK_RATES = [1, 1.25, 1.5] as const;
 
@@ -167,7 +168,8 @@ export const PodcastPlayer: React.FC = () => {
     const a = document.createElement('a');
     a.href = audioUrl;
     const safeSlug = activePodcast.feedLabel.toLowerCase().replace(/[^a-z0-9]+/gi, '-');
-    a.download = `podcast-${safeSlug || 'notiziario'}.wav`;
+    const ext = getAudioExtensionFromMime(activePodcast.audioBlob.type);
+    a.download = `podcast-${safeSlug || 'notiziario'}${ext}`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -345,8 +347,8 @@ export const PodcastPlayer: React.FC = () => {
           <button
             type="button"
             onClick={handleDownload}
-            title="Scarica audio WAV"
-            aria-label="Scarica audio WAV"
+            title="Scarica audio"
+            aria-label="Scarica audio"
             className="hidden sm:flex h-9 w-9 rounded-md items-center justify-center text-neutral-600 dark:text-neutral-300 hover:bg-neutral-200/70 dark:hover:bg-neutral-800 cursor-pointer"
           >
             <Download className="w-4 h-4" />

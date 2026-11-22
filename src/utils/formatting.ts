@@ -109,3 +109,23 @@ export function shouldHideByKeywords(item: Pick<Item, 'title' | 'text'>, keyword
   const hay = `${item.title || ''} ${item.text || ''}`.toLowerCase();
   return keywords.some((kw) => kw && hay.includes(kw.toLowerCase()));
 }
+
+const AUDIO_MIME_EXTENSIONS: Record<string, string> = {
+  'audio/mpeg': '.mp3',
+  'audio/mp3': '.mp3',
+  'audio/wav': '.wav',
+  'audio/x-wav': '.wav',
+  'audio/wave': '.wav',
+  'audio/ogg': '.ogg',
+  'audio/opus': '.ogg',
+  'audio/mp4': '.m4a',
+  'audio/x-m4a': '.m4a',
+  'audio/m4a': '.m4a',
+  'audio/aac': '.aac',
+  'audio/webm': '.webm',
+};
+
+export function getAudioExtensionFromMime(mimeType: string): string {
+  const base = mimeType.split(';')[0]?.trim().toLowerCase() || '';
+  return AUDIO_MIME_EXTENSIONS[base] || '.audio';
+}

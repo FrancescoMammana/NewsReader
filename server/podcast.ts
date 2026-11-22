@@ -1,4 +1,12 @@
-import { GoogleGenAI, ThinkingLevel, Type } from '@google/genai';
+import { Type, type Schema } from '@google/genai';
+import {
+  AiProviderError,
+  generateAiText,
+  getMissingConfigMessage,
+  isPodcastAvailable as isProviderPodcastAvailable,
+  synthesizeAiSpeech,
+  toAiHttpError,
+} from './aiProvider.ts';
 
 export interface PodcastInputArticle {
   id?: unknown;
@@ -27,46 +35,16 @@ export interface PodcastArtifacts {
 }
 
 interface GeneratedScriptPayload {
-  episodeTitle?: string;
-  intro?: string;
-  segments?: Array<{
-    storyId?: number;
-    headline?: string;
-    spokenText?: string;
-  }>;
-  outro?: string;
+  episodeTitle?: unknown;
+  intro?: unknown;
+  segments?: unknown;
+  outro?: unknown;
 }
 
-export class PodcastError extends Error {
-  readonly statusCode: number;
-
-  constructor(statusCode: number, message: string) {
-    super(message);
-    this.statusCode = statusCode;
-  }
-}
-
-const SCRIPT_MODELS = ['gemini-3.1-flash-lite', 'gemini-3.5-flash-lite'];
-const TTS_MODELS = ['gemini-3.8-flash-lite-tts', 'gemini-3.8-flash-tts'];
 const MAX_SCRIPT_CHARS = 4500;
 
-let client: GoogleGenAI | null | undefined;
-
-function getGeminiClient(): GoogleGenAI | null {
-  if (client !== undefined) return client;
-  const apiKey = process.env.GEMINI_API_KEY?.trim();
-  client = apiKey
-    ? new GoogleGenAI({
-        apiKey,
-        apiVersion: 'v1beta',
-        httpOptions: { headers: { 'User-Agent': 'aistudio-build' } },
-      })
-    : null;
-  return client;
-}
-
 export function isPodcastAvailable(): boolean {
-  return Boolean(process.env.GEMINI_API_KEY?.trim());
+  return isProviderPodcastAvailable();
 }
 
 function cleanText(raw: string): string {
@@ -95,49 +73,7 @@ export function preparePodcastArticles(rawArticles: unknown): PreparedPodcastArt
     .filter((article) => article.title.length > 0);
 }
 
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
-function isNonRetriableAuthError(error: unknown): boolean {
-  const err = error as { status?: number; message?: string };
-  const status = typeof err?.status === 'number' ? err.status : 0;
-  const message = typeof err?.message === 'string' ? err.message : '';
-  return (
-    status === 401 ||
-    status === 403 ||
-    message.includes('API_KEY_INVALID') ||
-    message.includes('PERMISSION_DENIED')
-  );
-}
-
-async function withFallback<T>(
-  stage: string,
-  models: string[],
-  run: (model: string) => Promise<T>,
-): Promise<T> {
-  let lastError: unknown;
-  for (let index = 0; index < models.length; index++) {
-    const model = models[index];
-    if (index > 0) {
-      console.warn(`[podcast/${stage}] riprovo con ${model} tra 1 secondo`);
-      await sleep(1000);
-    }
-    try {
-      return await run(model);
-    } catch (error) {
-      lastError = error;
-      if (isNonRetriableAuthError(error)) throw error;
-      const err = error as { status?: number; message?: string };
-      console.warn(
-        `[podcast/${stage}] tentativo ${index + 1}/${models.length} (${model}) non riuscito:`,
-        err?.status ?? 'ERR',
-        typeof err?.message === 'string' ? err.message.slice(0, 140) : '',
-      );
-    }
-  }
-  throw lastError;
-}
-
-const scriptResponseSchema = {
+const scriptResponseSchema: Schema = {
   type: Type.OBJECT,
   properties: {
     episodeTitle: {
@@ -180,11 +116,35 @@ const scriptResponseSchema = {
 
 const SCRIPT_SYSTEM_INSTRUCTION =
   'Sei un giornalista radiofonico professionista di lingua madre italiana. Ricevi fino a 15 articoli che possono essere scritti in qualsiasi lingua (italiano, inglese, spagnolo, francese, tedesco, portoghese o altre) e devi tradurre, rielaborare e sintetizzare TUTTE le notizie in un unico bollettino audio scorrevole in ITALIANO perfetto. ' +
-  'Lunghezza complessiva compatta tra 300 e 450 parole (circa 2-3 minuti di lettura naturale), dando risalto ai fatti principali e raggruppando con transizioni fluide le notizie correlate. ' +
-  'Regole rigorose per il testo parlato: SOLO prosa naturale pronta per essere letta ad alta voce da uno speaker; NON includere mai URL, domini web, simboli markdown (*, **, #, >), elenchi puntati, parentesi tecniche o emoji. Scrivi eventuali sigle inglesi o nomi stranieri in forma chiara e scorrevole per una lettura italiana.';
+  'Lunghezza complessiva compatta tra 450 e 550 parole (circa 3-4 minuti di lettura naturale), coprendo in modo equilibrato tutte le notizie fornite e collegandole con transizioni fluide. ' +
+  'Regole rigorose per il testo parlato: SOLO prosa naturale pronta per essere letta ad alta voce da uno speaker; NON includere mai URL, domini web, simboli markdown (*, **, #, >), elenchi puntati, parentesi tecniche o emoji. Scrivi eventuali sigle inglesi o nomi stranieri in forma chiara e scorrevole per una lettura italiana. ' +
+  'Rispondi ESCLUSIVAMENTE con un oggetto JSON valido avente questa struttura esatta: {"episodeTitle":"string","intro":"string","segments":[{"storyId":123,"headline":"string","spokenText":"string"}],"outro":"string"}.';
+
+function parseScriptJson(raw: string): GeneratedScriptPayload {
+  const cleaned = raw
+    .trim()
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/\s*```$/i, '')
+    .trim();
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(cleaned);
+  } catch {
+    throw new AiProviderError(502, 'Risposta non valida dal modello di scrittura del copione.');
+  }
+
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new AiProviderError(502, 'Formato JSON del copione non valido.');
+  }
+  const obj = parsed as GeneratedScriptPayload;
+  if (!Array.isArray(obj.segments) || obj.segments.length === 0) {
+    throw new AiProviderError(502, 'Il copione generato non contiene segmenti validi.');
+  }
+  return obj;
+}
 
 async function generateScript(
-  ai: GoogleGenAI,
   feedLabel: string,
   articles: PreparedPodcastArticle[],
 ): Promise<{ episodeTitle: string; fullScript: string; segments: PodcastArtifacts['segments'] }> {
@@ -197,28 +157,22 @@ async function generateScript(
 
   const prompt = `Prepara una rassegna stampa audio in italiano per la sezione "${feedLabel}" basata su questi ${articles.length} articoli:\n\n${articlesPromptBlock}`;
 
-  const response = await withFallback('script', SCRIPT_MODELS, (model) =>
-    ai.models.generateContent({
-      model,
-      contents: prompt,
-      config: {
-        thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL },
-        systemInstruction: SCRIPT_SYSTEM_INSTRUCTION,
-        responseMimeType: 'application/json',
-        responseSchema: scriptResponseSchema,
-      },
-    }),
-  );
+  const rawText = await generateAiText({
+    systemInstruction: SCRIPT_SYSTEM_INSTRUCTION,
+    prompt,
+    jsonSchema: scriptResponseSchema,
+    thinkingMinimalForGemini3: true,
+  });
 
-  let parsed: GeneratedScriptPayload;
-  try {
-    parsed = JSON.parse(response.text ?? '') as GeneratedScriptPayload;
-  } catch {
-    throw new PodcastError(502, 'Risposta non valida dal modello di scrittura del copione.');
-  }
-
+  const parsed = parseScriptJson(rawText);
   const validIds = new Set(articles.map((article) => article.id));
-  const segments = (Array.isArray(parsed.segments) ? parsed.segments : [])
+  const rawSegments = parsed.segments as Array<{
+    storyId?: unknown;
+    headline?: unknown;
+    spokenText?: unknown;
+  }>;
+
+  const segments = rawSegments
     .filter((segment) => typeof segment?.spokenText === 'string' && segment.spokenText.trim())
     .map((segment, index) => {
       const fallback = articles[Math.min(index, articles.length - 1)];
@@ -232,115 +186,46 @@ async function generateScript(
             ? segment.headline
             : fallback.title,
         ),
-        spokenText: cleanText(segment.spokenText ?? ''),
+        spokenText: cleanText(segment.spokenText as string),
       };
     });
 
-  const intro = cleanText(parsed.intro ?? '');
-  const outro = cleanText(parsed.outro ?? '');
-  const episodeTitle = cleanText(parsed.episodeTitle?.trim() || `Rassegna ${feedLabel}`);
+  const intro = cleanText(typeof parsed.intro === 'string' ? parsed.intro : '');
+  const outro = cleanText(typeof parsed.outro === 'string' ? parsed.outro : '');
+  const titleRaw = typeof parsed.episodeTitle === 'string' ? parsed.episodeTitle.trim() : '';
+  const episodeTitle = cleanText(titleRaw || `Rassegna ${feedLabel}`);
   const fullScript = [intro, ...segments.map((segment) => segment.spokenText), outro]
     .filter(Boolean)
     .join('\n\n');
 
-  if (!fullScript) throw new PodcastError(502, 'Copione del podcast non valido.');
+  if (!fullScript || segments.length === 0) {
+    throw new AiProviderError(502, 'Copione del podcast non valido.');
+  }
 
   return { episodeTitle, fullScript, segments };
-}
-
-async function synthesize(ai: GoogleGenAI, script: string): Promise<string> {
-  const text = script.slice(0, MAX_SCRIPT_CHARS);
-  const response = await withFallback('tts', TTS_MODELS, (model) =>
-    ai.models.generateContent({
-      model,
-      contents: [
-        {
-          role: 'user',
-          parts: [
-            {
-              text,
-              speechMetadata: {
-                style: 'Speaker radiofonico giornalistico italiano, tono chiaro, professionale e naturale',
-              },
-            },
-          ],
-        },
-      ],
-      config: {
-        responseModalities: ['AUDIO'],
-        speechConfig: {
-          voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Kore' } },
-        },
-      },
-    }),
-  );
-
-  const audioBase64 = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-  if (!audioBase64) {
-    throw new PodcastError(502, 'Il modello audio non ha restituito tracce vocali.');
-  }
-  return audioBase64;
 }
 
 export async function generatePodcastArtifacts(
   feedLabel: string,
   articles: PreparedPodcastArticle[],
 ): Promise<PodcastArtifacts> {
-  const ai = getGeminiClient();
-  if (!ai) throw new PodcastError(503, 'Chiave GEMINI_API_KEY non configurata.');
+  if (!isPodcastAvailable()) {
+    throw new AiProviderError(503, getMissingConfigMessage('podcast'));
+  }
 
-  const { episodeTitle, fullScript, segments } = await generateScript(ai, feedLabel, articles);
-  const audioBase64 = await synthesize(ai, fullScript);
+  const { episodeTitle, fullScript, segments } = await generateScript(feedLabel, articles);
+  const { audioBase64, mimeType } = await synthesizeAiSpeech(fullScript.slice(0, MAX_SCRIPT_CHARS));
 
   return {
     episodeTitle,
     script: fullScript,
     segments: segments.map(({ storyId, headline }) => ({ storyId, headline })),
     audioBase64,
-    mimeType: 'audio/wav',
+    mimeType,
     generatedAt: Date.now(),
   };
 }
 
-const ERROR_MESSAGES: Record<number, string> = {
-  400: 'Richiesta AI non valida (400). Controlla gli articoli inviati.',
-  403: 'Chiave GEMINI_API_KEY non valida o bloccata per chiamate da server esterno (403). Crea una nuova chiave gratuita su Google AI Studio senza restrizioni di dominio.',
-  429: 'Quota gratuita Gemini temporaneamente esaurita (429): attendi 1 minuto e riprova.',
-  502: 'Errore nella generazione del podcast AI.',
-  503: 'I server Gemini sono momentaneamente sovraccarichi (503). Attendi qualche secondo e riprova.',
-};
-
 export function podcastHttpError(error: unknown): { status: number; message: string } {
-  if (error instanceof PodcastError) {
-    return { status: error.statusCode, message: error.message };
-  }
-
-  const err = error as { status?: number; message?: string };
-  const status = typeof err?.status === 'number' ? err.status : 502;
-  const raw = typeof err?.message === 'string' ? err.message : '';
-  let detail = raw;
-  try {
-    const parsed = JSON.parse(raw) as { error?: { message?: string } };
-    detail = parsed?.error?.message ?? raw;
-  } catch {
-    // Il messaggio è testo semplice.
-  }
-  detail = detail.slice(0, 180).trim();
-  console.error('[podcast/generate]', status, detail || raw);
-
-  const code =
-    status === 429 || raw.includes('RESOURCE_EXHAUSTED')
-      ? 429
-      : status === 401 || status === 403 || raw.includes('API_KEY_INVALID') || raw.includes('PERMISSION_DENIED')
-        ? 403
-        : status === 503 || raw.includes('UNAVAILABLE') || raw.includes('high demand')
-          ? 503
-          : status === 404 || raw.includes('NOT_FOUND')
-            ? 502
-            : status === 400
-              ? 400
-              : 502;
-  const base = ERROR_MESSAGES[code];
-  const extra = detail && code !== 403 ? `: ${detail}` : '';
-  return { status: code, message: `${base}${extra}` };
+  return toAiHttpError(error, 'podcast');
 }

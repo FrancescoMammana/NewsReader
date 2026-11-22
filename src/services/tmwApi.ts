@@ -111,15 +111,16 @@ export async function generatePodcastApi(
     timeoutMs: 90000,
     fallbackError: 'Impossibile generare il podcast AI.',
   });
-  if (!data.audioBase64 || !data.episodeTitle || !data.script) {
-    throw new Error('Risposta incompleta dal server Podcast AI.');
+  const mimeType = typeof data.mimeType === 'string' ? data.mimeType.trim() : '';
+  if (!data.audioBase64 || !mimeType.toLowerCase().startsWith('audio/') || !data.episodeTitle || !data.script) {
+    throw new Error('Risposta incompleta o formato audio non valido dal server Podcast AI.');
   }
   return {
     episodeTitle: data.episodeTitle,
     script: data.script,
     segments: Array.isArray(data.segments) ? data.segments : [],
     audioBase64: data.audioBase64,
-    mimeType: data.mimeType || 'audio/wav',
+    mimeType,
     generatedAt: data.generatedAt ?? Date.now(),
   };
 }

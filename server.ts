@@ -6,6 +6,7 @@ import { tmwRouter } from './server/tmw.ts';
 import { rssRouter } from './server/rss.ts';
 import { linkPreviewRouter } from './server/linkPreview.ts';
 import { aiQuestionRouter } from './server/aiQuestion.ts';
+import { getMissingConfigMessage } from './server/aiProvider.ts';
 import {
   generatePodcastArtifacts,
   isPodcastAvailable,
@@ -64,7 +65,7 @@ app.get('/api/podcast/status', (_req: Request, res: Response) => {
 app.post('/api/podcast/generate', async (req: Request, res: Response) => {
   if (!isPodcastAvailable()) {
     res.status(503).json({
-      error: 'Servizio Podcast AI non attivo: imposta GEMINI_API_KEY nelle variabili ambiente del server.',
+      error: getMissingConfigMessage('podcast'),
     });
     return;
   }

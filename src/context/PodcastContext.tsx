@@ -196,7 +196,7 @@ export const PodcastProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
         const generated = await generatePodcastApi(feedLabel, payloadArticles);
         const bytes = Uint8Array.from(atob(generated.audioBase64), (c) => c.charCodeAt(0));
-        const audioBlob = new Blob([bytes], { type: generated.mimeType || 'audio/wav' });
+        const audioBlob = new Blob([bytes], { type: generated.mimeType });
 
         const episode: PodcastEpisode = {
           feedId,

@@ -1,35 +1,21 @@
 import express, { type Request, type Response } from 'express';
-import { GoogleGenAI } from '@google/genai';
+import {
+  generateAiText,
+  getMissingConfigMessage,
+  isTextAiAvailable,
+  toAiHttpError,
+} from './aiProvider.ts';
 
 export const aiQuestionRouter = express.Router();
 
-let client: GoogleGenAI | null | undefined;
-
-function getGeminiClient(): GoogleGenAI | null {
-  if (client !== undefined) return client;
-  const apiKey = process.env.GEMINI_API_KEY?.trim();
-  client = apiKey
-    ? new GoogleGenAI({
-        apiKey,
-        apiVersion: 'v1beta',
-        httpOptions: { headers: { 'User-Agent': 'aistudio-build' } },
-      })
-    : null;
-  return client;
-}
-
-export function isGeminiAvailable(): boolean {
-  return Boolean(process.env.GEMINI_API_KEY?.trim());
-}
-
 aiQuestionRouter.get('/api/gemini/status', (_req: Request, res: Response) => {
-  res.json({ available: isGeminiAvailable() });
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.json({ available: isTextAiAvailable() });
 });
 
 aiQuestionRouter.post('/api/gemini/qa', async (req: Request, res: Response) => {
-  const gemini = getGeminiClient();
-  if (!gemini) {
-    res.status(503).json({ error: 'Chiave GEMINI_API_KEY non configurata sul server.' });
+  if (!isTextAiAvailable()) {
+    res.status(503).json({ error: getMissingConfigMessage('text') });
     return;
   }
 
@@ -60,21 +46,17 @@ aiQuestionRouter.post('/api/gemini/qa', async (req: Request, res: Response) => {
 
     const prompt = `[Titolo Articolo]: ${title}\n[Testo Articolo]: ${articleSnippet}\n\n[Cronologia Chat]:\n${chatHistory}\n\nDomanda attuale dell'utente: ${question}`;
 
-    const response = await gemini.models.generateContent({
-      model: 'gemini-3.5-flash-lite',
-      contents: prompt,
-      config: {
-        systemInstruction:
-          "Sei un assistente IA utile, conciso e diretto. L'articolo e il titolo forniti costituiscono il contesto e il punto di partenza della conversazione. Rispondi alle domande dell'utente in modo chiaro e pertinente: quando la domanda richiede spiegazioni, dettagli tecnici, contesti o approfondimenti non presenti direttamente nel testo (ad esempio tempi di recupero per un infortunio, requisiti hardware, definizioni o retroscena sui soggetti citati), rispondi usando liberamente le tue conoscenze generali. Mantieni sempre la risposta sintetica, focalizzata ed evita preamboli o convenevoli.",
-        maxOutputTokens: 500,
-        temperature: 0.5,
-      },
+    const text = await generateAiText({
+      systemInstruction:
+        "Sei un assistente IA utile, conciso e diretto. L'articolo e il titolo forniti costituiscono il contesto e il punto di partenza della conversazione. Rispondi alle domande dell'utente in modo chiaro e pertinente: quando la domanda richiede spiegazioni, dettagli tecnici, contesti o approfondimenti non presenti direttamente nel testo (ad esempio tempi di recupero per un infortunio, requisiti hardware, definizioni o retroscena sui soggetti citati), rispondi usando liberamente le tue conoscenze generali. Mantieni sempre la risposta sintetica, focalizzata ed evita preamboli o convenevoli.",
+      prompt,
+      maxOutputTokens: 500,
+      temperature: 0.5,
     });
 
-    const answer = response.text?.trim() || 'Nessuna risposta generata.';
-    res.json({ answer });
+    res.json({ answer: text || 'Nessuna risposta generata.' });
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'Errore durante la generazione della risposta con Gemini.';
-    res.status(502).json({ error: message });
+    const { status, message } = toAiHttpError(err, 'qa');
+    res.status(status).json({ error: message });
   }
 });
