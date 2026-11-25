@@ -122,14 +122,109 @@ const SCRIPT_SYSTEM_INSTRUCTION =
   'Regole rigorose per il testo parlato: SOLO prosa naturale pronta per essere letta ad alta voce da uno speaker; NON includere mai URL, domini web, simboli markdown (*, **, #, >), elenchi puntati, parentesi tecniche o emoji. Scrivi eventuali sigle inglesi o nomi stranieri in forma chiara e scorrevole per una lettura italiana. ' +
   'Rispondi ESCLUSIVAMENTE con un oggetto JSON valido avente questa struttura esatta: {"episodeTitle":"string","intro":"string","segments":[{"storyId":123,"headline":"string","spokenText":"string"}],"outro":"string"}.';
 
+function stripMarkdownAndThink(raw: string): string {
+  let cleaned = raw.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+  const openThinkIdx = cleaned.search(/<think>/i);
+  if (openThinkIdx >= 0) {
+    const braceAfterThink = cleaned.indexOf('{', openThinkIdx);
+    if (braceAfterThink > openThinkIdx) {
+      cleaned = cleaned.slice(braceAfterThink);
+    }
+  }
+  const closedFence = cleaned.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+  if (closedFence) {
+    return closedFence[1].trim();
+  }
+  return cleaned
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/\s*```$/i, '')
+    .trim();
+}
+
+function unescapeJsonStringFragment(value: string): string {
+  return value
+    .replace(/\\n/g, '\n')
+    .replace(/\\r/g, '')
+    .replace(/\\t/g, ' ')
+    .replace(/\\"/g, '"')
+    .replace(/\\\\/g, '\\')
+    .trim();
+}
+
+function extractTolerantScriptPayload(candidate: string): GeneratedScriptPayload | null {
+  const keyPattern =
+    /"(episodeTitle|intro|segments|storyId|headline|spokenText|outro)"\s*:/g;
+  const keys: Array<{ name: string; valueStart: number; keyStart: number }> = [];
+  let match: RegExpExecArray | null;
+  while ((match = keyPattern.exec(candidate)) !== null) {
+    keys.push({
+      name: match[1],
+      keyStart: match.index,
+      valueStart: match.index + match[0].length,
+    });
+  }
+  if (keys.length === 0) return null;
+
+  const extractStringField = (idx: number): string => {
+    const startRaw = keys[idx].valueStart;
+    const endLimit = idx + 1 < keys.length ? keys[idx + 1].keyStart : candidate.length;
+    const slice = candidate.slice(startRaw, endLimit);
+    const firstQuote = slice.indexOf('"');
+    if (firstQuote < 0) return '';
+    const afterOpen = slice.slice(firstQuote + 1);
+    const inner = afterOpen.replace(/"\s*[,}\]{[\s]*$/, '');
+    return unescapeJsonStringFragment(inner);
+  };
+
+  let episodeTitle = '';
+  let intro = '';
+  let outro = '';
+  const segments: Array<{ storyId?: number; headline?: string; spokenText: string }> = [];
+  let pendingStoryId: number | undefined;
+  let pendingHeadline: string | undefined;
+
+  for (let i = 0; i < keys.length; i++) {
+    const key = keys[i];
+    if (key.name === 'episodeTitle') {
+      episodeTitle = extractStringField(i);
+    } else if (key.name === 'intro') {
+      intro = extractStringField(i);
+    } else if (key.name === 'outro') {
+      outro = extractStringField(i);
+    } else if (key.name === 'storyId') {
+      const endLimit = i + 1 < keys.length ? keys[i + 1].keyStart : candidate.length;
+      const numMatch = candidate.slice(key.valueStart, endLimit).match(/\d+/);
+      pendingStoryId = numMatch ? Number(numMatch[0]) : undefined;
+    } else if (key.name === 'headline') {
+      pendingHeadline = extractStringField(i);
+    } else if (key.name === 'spokenText') {
+      const spoken = extractStringField(i);
+      if (spoken) {
+        segments.push({
+          storyId: pendingStoryId,
+          headline: pendingHeadline,
+          spokenText: spoken,
+        });
+      }
+      pendingStoryId = undefined;
+      pendingHeadline = undefined;
+    }
+  }
+
+  if (segments.length === 0) return null;
+  return { episodeTitle, intro, segments, outro };
+}
+
 export function parseScriptJson(raw: string): GeneratedScriptPayload {
-  const withoutThink = raw.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
-  const fencedMatch = withoutThink.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
-  const candidate = (fencedMatch ? fencedMatch[1] : withoutThink).trim();
+  const candidate = stripMarkdownAndThink(raw);
+  if (!candidate) {
+    throw new AiProviderError(502, 'Risposta non valida dal modello di scrittura del copione.');
+  }
 
   const tryParse = (text: string): unknown => {
+    const cleanedJson = text.replace(/,\s*([}\]])/g, '$1');
     try {
-      return JSON.parse(text);
+      return JSON.parse(cleanedJson);
     } catch {
       return null;
     }
@@ -143,10 +238,26 @@ export function parseScriptJson(raw: string): GeneratedScriptPayload {
       parsed = tryParse(candidate.slice(firstBrace, lastBrace + 1));
     }
   }
+  if (!parsed) {
+    const firstBracket = candidate.indexOf('[');
+    const lastBracket = candidate.lastIndexOf(']');
+    if (firstBracket >= 0 && lastBracket > firstBracket) {
+      parsed = tryParse(candidate.slice(firstBracket, lastBracket + 1));
+    }
+  }
+
+  if (Array.isArray(parsed) && parsed.length > 0) {
+    parsed = { segments: parsed };
+  }
 
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    const tolerant = extractTolerantScriptPayload(candidate);
+    if (tolerant) {
+      return tolerant;
+    }
     throw new AiProviderError(502, 'Risposta non valida dal modello di scrittura del copione.');
   }
+
   const obj = parsed as GeneratedScriptPayload;
   if (!Array.isArray(obj.segments) || obj.segments.length === 0) {
     throw new AiProviderError(502, 'Il copione generato non contiene segmenti validi.');
@@ -171,7 +282,7 @@ async function generateScript(
   const rawText = await generateAiText({
     systemInstruction: SCRIPT_SYSTEM_INSTRUCTION,
     prompt,
-    maxOutputTokens: 1400,
+    maxOutputTokens: 2400,
     jsonSchema: scriptResponseSchema,
     thinkingMinimalForGemini3: true,
     overrides,
@@ -185,11 +296,7 @@ async function generateScript(
   try {
     parsed = parseScriptJson(rawText);
   } catch (err) {
-    const plain = cleanText(
-      rawText
-        .replace(/<think>[\s\S]*?<\/think>/gi, '')
-        .replace(/```[\s\S]*?```/g, ''),
-    );
+    const plain = cleanText(stripMarkdownAndThink(rawText));
     const looksLikeTruncatedJson = plain.startsWith('{') || plain.startsWith('[');
     if (!looksLikeTruncatedJson && plain.length >= 120) {
       const firstArticle = articles[0];
@@ -204,7 +311,7 @@ async function generateScript(
         ],
       };
     }
-    console.warn('[podcast/script] risposta non JSON valida:', rawText.slice(0, 240));
+    console.warn('[podcast/script] risposta non JSON valida:', rawText.slice(0, 320));
     throw err;
   }
 

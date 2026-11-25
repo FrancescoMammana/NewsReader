@@ -299,6 +299,20 @@ Grazie.`;
 
   assert.throws(() => parseScriptJson(''), /Risposta non valida/);
   assert.throws(() => parseScriptJson('{"episodeTitle":"solo titolo"}'), /segmenti validi/);
+
+  const unescapedAndTruncated = `\`\`\`json
+{"episodeTitle":"Rassegna Sera","intro":"Benvenuti al notiziario.","segments":[{"storyId":12,"headline":"Atalanta","spokenText":"Deket avvisa i nerazzurri: "Lotteremo fino alla fine".",},{"storyId":15,"headline":"Roma","spokenText":"Hermoso carica l'ambiente giallorosso."`;
+  const recovered = parseScriptJson(unescapedAndTruncated);
+  assert.equal(recovered.episodeTitle, 'Rassegna Sera');
+  assert.equal(recovered.intro, 'Benvenuti al notiziario.');
+  assert.ok(Array.isArray(recovered.segments));
+  assert.equal(recovered.segments.length, 2);
+
+  const arrayOnly = parseScriptJson(
+    '[{"storyId":5,"headline":"Inter","spokenText":"Terzo clean sheet di fila per i nerazzurri."}]',
+  );
+  assert.ok(Array.isArray(arrayOnly.segments));
+  assert.equal(arrayOnly.segments.length, 1);
 });
 
 test('resolveEffectiveAiConfig adatta automaticamente voce e formato se audioModel cambia rispetto al default Kokoro', () => {
