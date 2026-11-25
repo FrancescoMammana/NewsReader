@@ -1,4 +1,11 @@
-export type BuiltinStoryType = 'latest' | 'serieA' | 'estero' | 'serieB' | 'editoriale' | 'favorites';
+export type BuiltinStoryType =
+  | 'latest'
+  | 'serieA'
+  | 'estero'
+  | 'serieB'
+  | 'editoriale'
+  | 'favorites'
+  | 'search';
 export type StoryType = BuiltinStoryType | string;
 
 export type FeedKind = 'tmw' | 'rss';
@@ -175,8 +182,6 @@ export interface Preferences {
 export interface ItemScreenArgs {
   item: Item;
 }
-
-export type ProfileSubPage = 'search' | 'settings';
 
 export interface ToastMessage {
   id: number;

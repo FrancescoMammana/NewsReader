@@ -148,6 +148,83 @@ export async function resetAiSettingsApi(): Promise<AiSettingsPayload> {
   });
 }
 
+export interface GeneratePodcastScriptResponse {
+  episodeTitle: string;
+  script: string;
+  segments: PodcastSegment[];
+}
+
+export async function generatePodcastScriptApi(
+  feedLabel: string,
+  articles: PodcastArticleInput[],
+  aiConfig?: AiRuntimeOverrides,
+): Promise<GeneratePodcastScriptResponse> {
+  const data = await fetchJson<Partial<GeneratePodcastScriptResponse>>('/api/podcast/script', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ feedLabel, articles, aiConfig }),
+    timeoutMs: 105000,
+    fallbackError: 'Impossibile generare il copione del podcast AI.',
+  });
+  if (!data.episodeTitle || !data.script) {
+    throw new Error('Copione incompleto restituito dal server Podcast AI.');
+  }
+  return {
+    episodeTitle: data.episodeTitle,
+    script: data.script,
+    segments: Array.isArray(data.segments) ? data.segments : [],
+  };
+}
+
+export async function generatePodcastAudioApi(
+  script: string,
+  aiConfig?: AiRuntimeOverrides,
+): Promise<{ audioBlob: Blob; mimeType: string }> {
+  const timeoutMs = 150000;
+  const signal =
+    typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function'
+      ? AbortSignal.timeout(timeoutMs)
+      : undefined;
+
+  let res: Response;
+  try {
+    res = await fetch('/api/podcast/audio', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ script, aiConfig }),
+      signal,
+    });
+  } catch (err) {
+    if (
+      err instanceof Error &&
+      (err.name === 'TimeoutError' ||
+        err.name === 'AbortError' ||
+        err.message.toLowerCase().includes('timed out'))
+    ) {
+      throw new Error(
+        `[timeout] La sintesi audio non ha risposto entro ${Math.round(timeoutMs / 1000)}s. Riprova tra poco o scegli un modello TTS più rapido.`,
+      );
+    }
+    throw err;
+  }
+
+  if (!res.ok) {
+    const errPayload = (await res.json().catch(() => null)) as { error?: string } | null;
+    throw new Error(errPayload?.error || `Errore HTTP ${res.status} nella sintesi audio TTS.`);
+  }
+
+  const contentType = (res.headers.get('content-type') || '').split(';')[0]?.trim() || '';
+  if (!contentType.toLowerCase().startsWith('audio/')) {
+    throw new Error(`Formato audio non valido restituito dal server (${contentType || 'sconosciuto'}).`);
+  }
+
+  const audioBlob = await res.blob();
+  if (audioBlob.size === 0) {
+    throw new Error('File audio vuoto restituito dal server Podcast AI.');
+  }
+  return { audioBlob, mimeType: contentType };
+}
+
 export async function generatePodcastApi(
   feedLabel: string,
   articles: PodcastArticleInput[],
@@ -157,7 +234,7 @@ export async function generatePodcastApi(
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ feedLabel, articles, aiConfig }),
-    timeoutMs: 90000,
+    timeoutMs: 180000,
     fallbackError: 'Impossibile generare il podcast AI.',
   });
   const mimeType = typeof data.mimeType === 'string' ? data.mimeType.trim() : '';

@@ -36,7 +36,11 @@ export interface SynthesizedSpeechResult {
   mimeType: string;
 }
 
-const UPSTREAM_TIMEOUT_MS = 75000;
+const TEXT_TIMEOUT_MS = 90000;
+const TTS_TIMEOUT_MS = 65000;
+const TTS_CONCURRENCY = 2;
+const PCM_WAV_MAX_CHUNK_CHARS = 750;
+const MP3_MAX_CHUNK_CHARS = 1500;
 
 let cachedGeminiKey = '';
 let cachedGeminiClient: GoogleGenAI | null = null;
@@ -191,76 +195,87 @@ export async function generateAiText(params: GenerateTextParams): Promise<string
   const cfg = getRequiredConfig('text', process.env, params.overrides);
 
   return withSingleRetry('text', async () => {
-    if (cfg.kind === 'gemini') {
-      const ai = getGeminiClient(cfg.geminiApiKey);
-      const isGemini4 = cfg.textModel.startsWith('gemini-4-');
-      const isGemini3 = cfg.textModel.startsWith('gemini-3');
+    try {
+      if (cfg.kind === 'gemini') {
+        const ai = getGeminiClient(cfg.geminiApiKey);
+        const isGemini4 = cfg.textModel.startsWith('gemini-4-');
+        const isGemini3 = cfg.textModel.startsWith('gemini-3');
 
-      const config: Record<string, unknown> = {
-        systemInstruction: params.systemInstruction,
-        abortSignal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
-      };
-      if (params.maxOutputTokens !== undefined) {
-        config.maxOutputTokens = params.maxOutputTokens;
-      }
-      if (params.temperature !== undefined && !isGemini4) {
-        config.temperature = params.temperature;
-      }
-      if (params.thinkingMinimalForGemini3 && isGemini3) {
-        config.thinkingConfig = { thinkingLevel: ThinkingLevel.MINIMAL };
-      }
-      if (params.jsonSchema) {
-        config.responseMimeType = 'application/json';
-        config.responseSchema = params.jsonSchema;
-      }
-
-      const response = await ai.models.generateContent({
-        model: cfg.textModel,
-        contents: params.prompt,
-        config,
-      });
-      return response.text?.trim() || '';
-    }
-
-    const client = getOpenAiClient(cfg.openaiApiKey, cfg.baseUrl);
-    const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
-      { role: 'system', content: params.systemInstruction },
-      { role: 'user', content: params.prompt },
-    ];
-
-    const runChat = (withJsonFormat: boolean) =>
-      client.chat.completions.create(
-        {
-          model: cfg.textModel,
-          messages,
-          ...(params.maxOutputTokens !== undefined ? { max_tokens: params.maxOutputTokens } : {}),
-          ...(params.temperature !== undefined ? { temperature: params.temperature } : {}),
-          ...(withJsonFormat ? { response_format: { type: 'json_object' } } : {}),
-        },
-        { signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS) },
-      );
-
-    let completion: OpenAI.Chat.Completions.ChatCompletion;
-    if (params.jsonSchema) {
-      try {
-        completion = await runChat(true);
-      } catch (err) {
-        const apiErr = err as { status?: number; message?: string };
-        const msg = (apiErr?.message || '').toLowerCase();
-        if (
-          apiErr?.status === 400 &&
-          (msg.includes('response_format') || msg.includes('json_object') || msg.includes('json mode'))
-        ) {
-          completion = await runChat(false);
-        } else {
-          throw err;
+        const config: Record<string, unknown> = {
+          systemInstruction: params.systemInstruction,
+          abortSignal: AbortSignal.timeout(TEXT_TIMEOUT_MS),
+        };
+        if (params.maxOutputTokens !== undefined) {
+          config.maxOutputTokens = params.maxOutputTokens;
         }
-      }
-    } else {
-      completion = await runChat(false);
-    }
+        if (params.temperature !== undefined && !isGemini4) {
+          config.temperature = params.temperature;
+        }
+        if (params.thinkingMinimalForGemini3 && isGemini3) {
+          config.thinkingConfig = { thinkingLevel: ThinkingLevel.MINIMAL };
+        }
+        if (params.jsonSchema) {
+          config.responseMimeType = 'application/json';
+          config.responseSchema = params.jsonSchema;
+        }
 
-    return completion.choices?.[0]?.message?.content?.trim() || '';
+        const response = await ai.models.generateContent({
+          model: cfg.textModel,
+          contents: params.prompt,
+          config,
+        });
+        return response.text?.trim() || '';
+      }
+
+      const client = getOpenAiClient(cfg.openaiApiKey, cfg.baseUrl);
+      const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
+        { role: 'system', content: params.systemInstruction },
+        { role: 'user', content: params.prompt },
+      ];
+
+      const runChat = (withJsonFormat: boolean) =>
+        client.chat.completions.create(
+          {
+            model: cfg.textModel,
+            messages,
+            ...(params.maxOutputTokens !== undefined ? { max_tokens: params.maxOutputTokens } : {}),
+            ...(params.temperature !== undefined ? { temperature: params.temperature } : {}),
+            ...(withJsonFormat ? { response_format: { type: 'json_object' } } : {}),
+          },
+          { signal: AbortSignal.timeout(TEXT_TIMEOUT_MS) },
+        );
+
+      let completion: OpenAI.Chat.Completions.ChatCompletion;
+      if (params.jsonSchema) {
+        try {
+          completion = await runChat(true);
+        } catch (err) {
+          const apiErr = err as { status?: number; message?: string };
+          const msg = (apiErr?.message || '').toLowerCase();
+          if (
+            apiErr?.status === 400 &&
+            (msg.includes('response_format') || msg.includes('json_object') || msg.includes('json mode'))
+          ) {
+            completion = await runChat(false);
+          } else {
+            throw err;
+          }
+        }
+      } else {
+        completion = await runChat(false);
+      }
+
+      return completion.choices?.[0]?.message?.content?.trim() || '';
+    } catch (err) {
+      if (isTimeoutOrAbortError(err)) {
+        throw new AiProviderError(
+          504,
+          'Il modello testo AI non ha risposto entro 90s. Riprova o scegli un modello testo più rapido.',
+          'timeout testo',
+        );
+      }
+      throw err;
+    }
   });
 }
 
@@ -428,99 +443,282 @@ export function normalizeAndValidateAudio(buffer: Buffer, rawMimeType?: string):
   return normalizeAndConvertAudio(buffer, rawMimeType).mimeType;
 }
 
-export async function synthesizeAiSpeech(
-  text: string,
-  overrides?: AiRuntimeOverrides,
-): Promise<SynthesizedSpeechResult> {
-  const cfg = getRequiredConfig('podcast', process.env, overrides);
-  const validationError = validateTtsParameters(cfg.kind, cfg.audioModel, cfg.voice, cfg.audioFormat);
-  if (validationError) {
-    throw new AiProviderError(400, validationError, 'validazione parametri TTS');
+export function splitTextForTts(text: string, maxChunkChars = PCM_WAV_MAX_CHUNK_CHARS): string[] {
+  const cleaned = text.trim();
+  if (!cleaned) return [];
+  if (cleaned.length <= maxChunkChars) return [cleaned];
+
+  const units: string[] = [];
+  for (const para of cleaned.split(/\n+/)) {
+    const trimmedPara = para.trim();
+    if (!trimmedPara) continue;
+    if (trimmedPara.length <= maxChunkChars) {
+      units.push(trimmedPara);
+      continue;
+    }
+    const sentences = trimmedPara.split(/(?<=[.!?])\s+/);
+    for (const sentence of sentences) {
+      const trimmedSentence = sentence.trim();
+      if (!trimmedSentence) continue;
+      if (trimmedSentence.length <= maxChunkChars) {
+        units.push(trimmedSentence);
+        continue;
+      }
+      // Fallback word split for unusually long unbroken sentences
+      let current = '';
+      for (const word of trimmedSentence.split(/\s+/)) {
+        if (!current) {
+          current = word;
+        } else if (current.length + 1 + word.length <= maxChunkChars) {
+          current += ` ${word}`;
+        } else {
+          units.push(current);
+          current = word;
+        }
+      }
+      if (current) units.push(current);
+    }
   }
 
-  return withSingleRetry('tts', async () => {
-    if (cfg.kind === 'gemini') {
-      const ai = getGeminiClient(cfg.geminiApiKey);
-      const response = await ai.models.generateContent({
-        model: cfg.audioModel,
-        contents: [
-          {
-            role: 'user',
-            parts: [
-              {
-                text,
-                speechMetadata: {
-                  style: 'Speaker radiofonico giornalistico italiano, tono chiaro, professionale e naturale',
-                },
-              },
-            ],
-          },
-        ],
-        config: {
-          abortSignal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
-          responseModalities: ['AUDIO'],
-          speechConfig: {
-            voiceConfig: { prebuiltVoiceConfig: { voiceName: cfg.voice } },
-          },
-        },
-      });
+  const chunks: string[] = [];
+  let buffer = '';
+  for (const unit of units) {
+    if (!buffer) {
+      buffer = unit;
+    } else if (buffer.length + 2 + unit.length <= maxChunkChars) {
+      buffer = `${buffer}\n\n${unit}`;
+    } else {
+      chunks.push(buffer);
+      buffer = unit;
+    }
+  }
+  if (buffer) chunks.push(buffer);
+  return chunks;
+}
 
-      const audioPart = response.candidates?.[0]?.content?.parts?.find((part) => part.inlineData?.data);
-      const audioBase64 = audioPart?.inlineData?.data;
-      if (!audioBase64) {
-        throw new AiProviderError(502, 'Il modello audio non ha restituito tracce vocali.', 'ricezione audio');
-      }
+export function extractPcmFromWav(
+  wavBuffer: Buffer,
+): { pcm: Buffer; sampleRate: number; channels: number } | null {
+  if (
+    wavBuffer.length < 44 ||
+    wavBuffer.subarray(0, 4).toString('ascii') !== 'RIFF' ||
+    wavBuffer.subarray(8, 12).toString('ascii') !== 'WAVE'
+  ) {
+    return null;
+  }
 
-      const rawBuffer = Buffer.from(audioBase64, 'base64');
-      const normalized = normalizeAndConvertAudio(rawBuffer, audioPart?.inlineData?.mimeType, 'wav');
-      return {
-        audioBase64: normalized.buffer.toString('base64'),
-        mimeType: normalized.mimeType,
-      };
+  let sampleRate = 24000;
+  let channels = 1;
+  let pcm: Buffer | null = null;
+  let offset = 12;
+
+  while (offset + 8 <= wavBuffer.length) {
+    const chunkId = wavBuffer.subarray(offset, offset + 4).toString('ascii');
+    const chunkSize = wavBuffer.readUInt32LE(offset + 4);
+    const dataStart = offset + 8;
+    const dataEnd = Math.min(wavBuffer.length, dataStart + chunkSize);
+
+    if (chunkId === 'fmt ' && dataEnd - dataStart >= 16) {
+      channels = wavBuffer.readUInt16LE(dataStart + 2) || 1;
+      sampleRate = wavBuffer.readUInt32LE(dataStart + 4) || 24000;
+    } else if (chunkId === 'data') {
+      pcm = wavBuffer.subarray(dataStart, dataEnd);
+      break;
     }
 
-    const client = getOpenAiClient(cfg.openaiApiKey, cfg.baseUrl);
-    type SpeechParams = OpenAI.Audio.Speech.SpeechCreateParams;
+    const paddedSize = chunkSize + (chunkSize % 2);
+    if (offset + 8 + paddedSize <= offset) break;
+    offset = dataStart + paddedSize;
+  }
 
-    let speechResponse: Response;
+  if (!pcm || pcm.length === 0) return null;
+  return { pcm, sampleRate, channels };
+}
+
+function stripId3TagsFromMp3(mp3Buffer: Buffer): Buffer {
+  let start = 0;
+  if (mp3Buffer.length >= 10 && mp3Buffer.subarray(0, 3).toString('ascii') === 'ID3') {
+    const tagSize =
+      ((mp3Buffer[6] & 0x7f) << 21) |
+      ((mp3Buffer[7] & 0x7f) << 14) |
+      ((mp3Buffer[8] & 0x7f) << 7) |
+      (mp3Buffer[9] & 0x7f);
+    if (10 + tagSize < mp3Buffer.length) {
+      start = 10 + tagSize;
+    }
+  }
+  let end = mp3Buffer.length;
+  if (end - start > 128 && mp3Buffer.subarray(end - 128, end - 125).toString('ascii') === 'TAG') {
+    end -= 128;
+  }
+  return mp3Buffer.subarray(start, end);
+}
+
+export function mergeAudioChunks(
+  chunks: Array<{ buffer: Buffer; mimeType: string }>,
+): { buffer: Buffer; mimeType: string } {
+  if (chunks.length === 0) {
+    throw new AiProviderError(502, 'Nessun segmento audio ricevuto.', 'validazione audio');
+  }
+  if (chunks.length === 1) return chunks[0];
+
+  const primaryMime = chunks[0].mimeType;
+  if (primaryMime === 'audio/wav') {
+    const parsedChunks = chunks.map((chunk) => extractPcmFromWav(chunk.buffer));
+    if (parsedChunks.every((item): item is NonNullable<typeof item> => item !== null)) {
+      const { sampleRate, channels } = parsedChunks[0];
+      const combinedPcm = Buffer.concat(parsedChunks.map((item) => item.pcm));
+      return {
+        buffer: wrapPcm16ToWav(combinedPcm, sampleRate, channels),
+        mimeType: 'audio/wav',
+      };
+    }
+  }
+
+  if (primaryMime === 'audio/mpeg') {
+    const stripped = chunks.map((chunk, idx) =>
+      idx === 0 ? chunk.buffer : stripId3TagsFromMp3(chunk.buffer),
+    );
+    return {
+      buffer: Buffer.concat(stripped),
+      mimeType: 'audio/mpeg',
+    };
+  }
+
+  return chunks[0];
+}
+
+async function synthesizeSingleSpeechChunk(
+  text: string,
+  cfg: EffectiveAiConfig,
+): Promise<{ buffer: Buffer; mimeType: string }> {
+  return withSingleRetry('tts', async () => {
     try {
-      speechResponse = await client.audio.speech.create(
+      if (cfg.kind === 'gemini') {
+        const ai = getGeminiClient(cfg.geminiApiKey);
+        const response = await ai.models.generateContent({
+          model: cfg.audioModel,
+          contents: [
+            {
+              role: 'user',
+              parts: [
+                {
+                  text,
+                  speechMetadata: {
+                    style:
+                      'Speaker radiofonico giornalistico italiano, tono chiaro, professionale e naturale',
+                  },
+                },
+              ],
+            },
+          ],
+          config: {
+            abortSignal: AbortSignal.timeout(TTS_TIMEOUT_MS),
+            responseModalities: ['AUDIO'],
+            speechConfig: {
+              voiceConfig: { prebuiltVoiceConfig: { voiceName: cfg.voice } },
+            },
+          },
+        });
+
+        const audioPart = response.candidates?.[0]?.content?.parts?.find(
+          (part) => part.inlineData?.data,
+        );
+        const audioBase64 = audioPart?.inlineData?.data;
+        if (!audioBase64) {
+          throw new AiProviderError(
+            502,
+            'Il modello audio non ha restituito tracce vocali.',
+            'ricezione audio',
+          );
+        }
+
+        const rawBuffer = Buffer.from(audioBase64, 'base64');
+        return normalizeAndConvertAudio(rawBuffer, audioPart?.inlineData?.mimeType, 'wav');
+      }
+
+      const client = getOpenAiClient(cfg.openaiApiKey, cfg.baseUrl);
+      type SpeechParams = OpenAI.Audio.Speech.SpeechCreateParams;
+
+      const speechResponse = await client.audio.speech.create(
         {
           model: cfg.audioModel,
           input: text,
           voice: cfg.voice as SpeechParams['voice'],
           response_format: cfg.audioFormat as SpeechParams['response_format'],
         },
-        { signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS) },
+        { signal: AbortSignal.timeout(TTS_TIMEOUT_MS) },
       );
+
+      if (!speechResponse.ok) {
+        const errBody = (await speechResponse.text().catch(() => '')).slice(0, 180).trim();
+        throw new AiProviderError(
+          speechResponse.status || 502,
+          errBody || `Errore dal servizio TTS (${speechResponse.status})`,
+          'risposta HTTP TTS',
+        );
+      }
+
+      const contentType = speechResponse.headers.get('content-type') || '';
+      const rawBuffer = Buffer.from(await speechResponse.arrayBuffer());
+      return normalizeAndConvertAudio(rawBuffer, contentType, cfg.audioFormat);
     } catch (err) {
       if (isTimeoutOrAbortError(err)) {
         throw new AiProviderError(
           504,
-          'Timeout durante la chiamata al servizio TTS del provider.',
-          'timeout',
+          'Timeout durante la sintesi audio TTS del provider (65s). Riprova o usa un modello TTS più veloce.',
+          'timeout audio TTS',
         );
       }
       throw err;
     }
-
-    if (!speechResponse.ok) {
-      const errBody = (await speechResponse.text().catch(() => '')).slice(0, 180).trim();
-      throw new AiProviderError(
-        speechResponse.status || 502,
-        errBody || `Errore dal servizio TTS (${speechResponse.status})`,
-        'risposta HTTP TTS',
-      );
-    }
-
-    const contentType = speechResponse.headers.get('content-type') || '';
-    const rawBuffer = Buffer.from(await speechResponse.arrayBuffer());
-    const normalized = normalizeAndConvertAudio(rawBuffer, contentType, cfg.audioFormat);
-    return {
-      audioBase64: normalized.buffer.toString('base64'),
-      mimeType: normalized.mimeType,
-    };
   });
+}
+
+export async function synthesizeAiSpeechBuffer(
+  text: string,
+  overrides?: AiRuntimeOverrides,
+): Promise<{ buffer: Buffer; mimeType: string }> {
+  const cfg = getRequiredConfig('podcast', process.env, overrides);
+  const validationError = validateTtsParameters(cfg.kind, cfg.audioModel, cfg.voice, cfg.audioFormat);
+  if (validationError) {
+    throw new AiProviderError(400, validationError, 'validazione parametri TTS');
+  }
+
+  const fmt = cfg.kind === 'gemini' ? 'wav' : cfg.audioFormat.trim().toLowerCase();
+  const canSplit = fmt === 'pcm' || fmt === 'wav' || fmt === 'mp3';
+  const maxChunkChars = fmt === 'mp3' ? MP3_MAX_CHUNK_CHARS : PCM_WAV_MAX_CHUNK_CHARS;
+  const chunks = canSplit ? splitTextForTts(text, maxChunkChars) : [text.trim()];
+
+  if (chunks.length <= 1) {
+    return synthesizeSingleSpeechChunk(chunks[0] || text, cfg);
+  }
+
+  const results: Array<{ buffer: Buffer; mimeType: string } | undefined> = new Array(chunks.length);
+  let nextIndex = 0;
+
+  const workerCount = Math.min(TTS_CONCURRENCY, chunks.length);
+  await Promise.all(
+    Array.from({ length: workerCount }, async () => {
+      while (nextIndex < chunks.length) {
+        const currentIdx = nextIndex++;
+        results[currentIdx] = await synthesizeSingleSpeechChunk(chunks[currentIdx], cfg);
+      }
+    }),
+  );
+
+  return mergeAudioChunks(results as Array<{ buffer: Buffer; mimeType: string }>);
+}
+
+export async function synthesizeAiSpeech(
+  text: string,
+  overrides?: AiRuntimeOverrides,
+): Promise<SynthesizedSpeechResult> {
+  const { buffer, mimeType } = await synthesizeAiSpeechBuffer(text, overrides);
+  return {
+    audioBase64: buffer.toString('base64'),
+    mimeType,
+  };
 }
 
 export function toAiHttpError(
@@ -535,7 +733,7 @@ export function toAiHttpError(
   if (isTimeoutOrAbortError(error)) {
     return {
       status: 504,
-      message: '[timeout] Il provider AI non ha risposto entro il tempo massimo (75s). Riprova o scegli un modello più rapido.',
+      message: '[timeout] Il provider AI non ha risposto in tempo. Riprova o scegli un modello più rapido.',
     };
   }
 

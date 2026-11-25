@@ -4,7 +4,8 @@ import {
   generateAiText,
   getMissingConfigMessage,
   isPodcastAvailable as isProviderPodcastAvailable,
-  synthesizeAiSpeech,
+  isTextAiAvailable,
+  synthesizeAiSpeechBuffer,
   toAiHttpError,
   type AiRuntimeOverrides,
 } from './aiProvider.ts';
@@ -60,7 +61,7 @@ function cleanText(raw: string): string {
 export function preparePodcastArticles(rawArticles: unknown): PreparedPodcastArticle[] {
   const articles = Array.isArray(rawArticles) ? (rawArticles as PodcastInputArticle[]) : [];
   return articles
-    .slice(0, 15)
+    .slice(0, 10)
     .map((article, index) => {
       const id =
         typeof article?.id === 'number' && Number.isFinite(article.id) ? article.id : index + 1;
@@ -69,7 +70,7 @@ export function preparePodcastArticles(rawArticles: unknown): PreparedPodcastArt
       const category = typeof article?.category === 'string' ? cleanText(article.category) : '';
       const subtitle = typeof article?.subtitle === 'string' ? cleanText(article.subtitle) : '';
       const text = typeof article?.text === 'string' ? cleanText(article.text) : '';
-      return { id, title, by, category, bodySnippet: (text || subtitle).slice(0, 1200) };
+      return { id, title, by, category, bodySnippet: (text || subtitle).slice(0, 600) };
     })
     .filter((article) => article.title.length > 0);
 }
@@ -116,8 +117,8 @@ const scriptResponseSchema: Schema = {
 };
 
 const SCRIPT_SYSTEM_INSTRUCTION =
-  'Sei un giornalista radiofonico professionista di lingua madre italiana. Ricevi fino a 15 articoli che possono essere scritti in qualsiasi lingua (italiano, inglese, spagnolo, francese, tedesco, portoghese o altre) e devi tradurre, rielaborare e sintetizzare TUTTE le notizie in un unico bollettino audio scorrevole in ITALIANO perfetto. ' +
-  'Lunghezza complessiva compatta tra 450 e 550 parole (circa 3-4 minuti di lettura naturale), coprendo in modo equilibrato tutte le notizie fornite e collegandole con transizioni fluide. ' +
+  'Sei un giornalista radiofonico professionista di lingua madre italiana. Ricevi fino a 10 articoli che possono essere scritti in qualsiasi lingua (italiano, inglese, spagnolo, francese, tedesco, portoghese o altre) e devi tradurre, rielaborare e sintetizzare le notizie in un unico bollettino audio scorrevole in ITALIANO perfetto. ' +
+  'Lunghezza complessiva compatta tra 300 e 420 parole (circa 2-3 minuti di lettura naturale), coprendo tutte le notizie fornite con transizioni fluide. ' +
   'Regole rigorose per il testo parlato: SOLO prosa naturale pronta per essere letta ad alta voce da uno speaker; NON includere mai URL, domini web, simboli markdown (*, **, #, >), elenchi puntati, parentesi tecniche o emoji. Scrivi eventuali sigle inglesi o nomi stranieri in forma chiara e scorrevole per una lettura italiana. ' +
   'Rispondi ESCLUSIVAMENTE con un oggetto JSON valido avente questa struttura esatta: {"episodeTitle":"string","intro":"string","segments":[{"storyId":123,"headline":"string","spokenText":"string"}],"outro":"string"}.';
 
@@ -162,6 +163,7 @@ async function generateScript(
   const rawText = await generateAiText({
     systemInstruction: SCRIPT_SYSTEM_INSTRUCTION,
     prompt,
+    maxOutputTokens: 2000,
     jsonSchema: scriptResponseSchema,
     thinkingMinimalForGemini3: true,
     overrides,
@@ -208,6 +210,44 @@ async function generateScript(
   return { episodeTitle, fullScript, segments };
 }
 
+export async function generatePodcastScript(
+  feedLabel: string,
+  articles: PreparedPodcastArticle[],
+  overrides?: AiRuntimeOverrides,
+): Promise<{
+  episodeTitle: string;
+  script: string;
+  segments: PodcastArtifacts['segments'];
+}> {
+  if (!isTextAiAvailable(process.env, overrides)) {
+    throw new AiProviderError(503, getMissingConfigMessage('text'), 'configurazione');
+  }
+  const { episodeTitle, fullScript, segments } = await generateScript(
+    feedLabel,
+    articles,
+    overrides,
+  );
+  return {
+    episodeTitle,
+    script: fullScript,
+    segments: segments.map(({ storyId, headline }) => ({ storyId, headline })),
+  };
+}
+
+export async function generatePodcastAudio(
+  script: string,
+  overrides?: AiRuntimeOverrides,
+): Promise<{ buffer: Buffer; mimeType: string }> {
+  if (!isPodcastAvailable(overrides)) {
+    throw new AiProviderError(503, getMissingConfigMessage('podcast'), 'configurazione');
+  }
+  const trimmed = cleanText(script).slice(0, MAX_SCRIPT_CHARS);
+  if (!trimmed) {
+    throw new AiProviderError(400, 'Copione del podcast vuoto o non valido.', 'validazione');
+  }
+  return synthesizeAiSpeechBuffer(script.slice(0, MAX_SCRIPT_CHARS), overrides);
+}
+
 export async function generatePodcastArtifacts(
   feedLabel: string,
   articles: PreparedPodcastArticle[],
@@ -217,21 +257,18 @@ export async function generatePodcastArtifacts(
     throw new AiProviderError(503, getMissingConfigMessage('podcast'), 'configurazione');
   }
 
-  const { episodeTitle, fullScript, segments } = await generateScript(
+  const { episodeTitle, script, segments } = await generatePodcastScript(
     feedLabel,
     articles,
     overrides,
   );
-  const { audioBase64, mimeType } = await synthesizeAiSpeech(
-    fullScript.slice(0, MAX_SCRIPT_CHARS),
-    overrides,
-  );
+  const { buffer, mimeType } = await generatePodcastAudio(script, overrides);
 
   return {
     episodeTitle,
-    script: fullScript,
-    segments: segments.map(({ storyId, headline }) => ({ storyId, headline })),
-    audioBase64,
+    script,
+    segments,
+    audioBase64: buffer.toString('base64'),
     mimeType,
     generatedAt: Date.now(),
   };

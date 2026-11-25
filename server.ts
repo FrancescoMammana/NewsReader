@@ -14,6 +14,8 @@ import {
 } from './server/aiSettings.ts';
 import {
   generatePodcastArtifacts,
+  generatePodcastAudio,
+  generatePodcastScript,
   isPodcastAvailable,
   podcastHttpError,
   preparePodcastArticles,
@@ -106,6 +108,70 @@ app.post('/api/ai/settings/reset', async (_req: Request, res: Response) => {
 app.get('/api/podcast/status', (_req: Request, res: Response) => {
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
   res.json({ available: isPodcastAvailable() });
+});
+
+app.post('/api/podcast/script', async (req: Request, res: Response) => {
+  const body = req.body as {
+    feedLabel?: unknown;
+    articles?: unknown;
+    aiConfig?: unknown;
+  };
+  const overrides = extractSafeAiOverrides(body?.aiConfig);
+
+  if (!isPodcastAvailable(overrides)) {
+    res.status(503).json({
+      error: getMissingConfigMessage('podcast'),
+    });
+    return;
+  }
+
+  const feedLabel =
+    typeof body?.feedLabel === 'string' && body.feedLabel.trim()
+      ? body.feedLabel.trim().slice(0, 80)
+      : 'Notiziario';
+  const articles = preparePodcastArticles(body?.articles);
+  if (articles.length === 0) {
+    res.status(400).json({ error: 'Nessun articolo valido disponibile per creare il podcast.' });
+    return;
+  }
+
+  try {
+    res.json(await generatePodcastScript(feedLabel, articles, overrides));
+  } catch (err) {
+    const { status, message } = podcastHttpError(err);
+    res.status(status).json({ error: message });
+  }
+});
+
+app.post('/api/podcast/audio', async (req: Request, res: Response) => {
+  const body = req.body as {
+    script?: unknown;
+    aiConfig?: unknown;
+  };
+  const overrides = extractSafeAiOverrides(body?.aiConfig);
+
+  if (!isPodcastAvailable(overrides)) {
+    res.status(503).json({
+      error: getMissingConfigMessage('podcast'),
+    });
+    return;
+  }
+
+  const script = typeof body?.script === 'string' ? body.script.trim() : '';
+  if (!script) {
+    res.status(400).json({ error: 'Copione mancante per la generazione audio.' });
+    return;
+  }
+
+  try {
+    const { buffer, mimeType } = await generatePodcastAudio(script, overrides);
+    res.setHeader('Content-Type', mimeType);
+    res.setHeader('Cache-Control', 'no-store');
+    res.send(buffer);
+  } catch (err) {
+    const { status, message } = podcastHttpError(err);
+    res.status(status).json({ error: message });
+  }
 });
 
 app.post('/api/podcast/generate', async (req: Request, res: Response) => {

@@ -27,6 +27,7 @@ export const StoriesFeed: React.FC<StoriesFeedProps> = ({ storyType }) => {
     openItem,
     podcastAvailable,
     podcastGeneratingForFeed,
+    podcastGeneratingStage,
     podcastError,
     dismissPodcastError,
     generateFeedPodcast,
@@ -127,7 +128,7 @@ export const StoriesFeed: React.FC<StoriesFeedProps> = ({ storyType }) => {
               type="button"
               disabled={isAnyPodcastGenerating || visibleCount === 0}
               onClick={() => void generateFeedPodcast(storyType)}
-              title="Ascolta il podcast AI in italiano degli ultimi 15 articoli"
+              title="Ascolta il podcast AI in italiano degli ultimi articoli"
               className="flex items-center gap-1 hover:text-neutral-900 dark:hover:text-neutral-100 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shrink-0 font-medium"
               style={{ color: accentHex }}
             >
@@ -136,7 +137,13 @@ export const StoriesFeed: React.FC<StoriesFeedProps> = ({ storyType }) => {
               ) : (
                 <Headphones className="w-3.5 h-3.5" />
               )}
-              <span>{isGeneratingThisPodcast ? 'Creazione...' : 'Podcast'}</span>
+              <span>
+                {isGeneratingThisPodcast
+                  ? podcastGeneratingStage === 'audio'
+                    ? 'Audio...'
+                    : 'Copione...'
+                  : 'Podcast'}
+              </span>
             </button>
           )}
           <button

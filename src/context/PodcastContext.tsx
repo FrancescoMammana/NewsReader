@@ -19,7 +19,8 @@ import {
   fetchAiSettings,
   fetchPodcastStatus,
   fetchTmwArticle,
-  generatePodcastApi,
+  generatePodcastAudioApi,
+  generatePodcastScriptApi,
   resetAiSettingsApi,
   saveAiSettingsApi,
 } from '../services/tmwApi';
@@ -35,6 +36,7 @@ export interface PodcastContextValue {
   podcastAvailable: boolean;
   activePodcast: PodcastEpisode | null;
   podcastGeneratingForFeed: string | null;
+  podcastGeneratingStage: 'script' | 'audio' | null;
   podcastError: string | null;
   dismissPodcastError: () => void;
   aiSettings: AiSettingsPayload | null;
@@ -99,6 +101,9 @@ export const PodcastProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [podcastError, setPodcastError] = useState<string | null>(null);
   const [activePodcast, setActivePodcast] = useState<PodcastEpisode | null>(null);
   const [podcastGeneratingForFeed, setPodcastGeneratingForFeed] = useState<string | null>(null);
+  const [podcastGeneratingStage, setPodcastGeneratingStage] = useState<'script' | 'audio' | null>(
+    null,
+  );
   const podcastBusyRef = useRef(false);
 
   const applyServerPayload = useCallback((payload: AiSettingsPayload) => {
@@ -227,7 +232,7 @@ export const PodcastProvider: React.FC<{ children: React.ReactNode }> = ({ child
       if (!podcastAvailable || podcastBusyRef.current) return;
 
       const bucket = feedsRef.current[feedId];
-      const targetStories = (bucket?.stories ?? []).filter((s) => !s.hidden).slice(0, 15);
+      const targetStories = (bucket?.stories ?? []).filter((s) => !s.hidden).slice(0, 10);
       if (targetStories.length === 0) {
         const msg = 'Nessun articolo disponibile in questa sezione per il podcast.';
         setPodcastError(msg);
@@ -255,6 +260,7 @@ export const PodcastProvider: React.FC<{ children: React.ReactNode }> = ({ child
       podcastBusyRef.current = true;
       setPodcastError(null);
       setPodcastGeneratingForFeed(feedId);
+      setPodcastGeneratingStage('script');
 
       try {
         const enrichedArticles = new Map<number, Story>();
@@ -311,19 +317,26 @@ export const PodcastProvider: React.FC<{ children: React.ReactNode }> = ({ child
           };
         });
 
-        const generated = await generatePodcastApi(feedLabel, payloadArticles, activeAiOverrides);
-        const bytes = Uint8Array.from(atob(generated.audioBase64), (c) => c.charCodeAt(0));
-        const audioBlob = new Blob([bytes], { type: generated.mimeType });
+        const scriptPayload = await generatePodcastScriptApi(
+          feedLabel,
+          payloadArticles,
+          activeAiOverrides,
+        );
+        setPodcastGeneratingStage('audio');
+        const { audioBlob } = await generatePodcastAudioApi(
+          scriptPayload.script,
+          activeAiOverrides,
+        );
 
         const episode: PodcastEpisode = {
           feedId,
           feedLabel,
-          episodeTitle: generated.episodeTitle,
-          script: generated.script,
-          segments: generated.segments,
+          episodeTitle: scriptPayload.episodeTitle,
+          script: scriptPayload.script,
+          segments: scriptPayload.segments,
           storiesSignature,
           audioBlob,
-          generatedAt: generated.generatedAt,
+          generatedAt: Date.now(),
         };
 
         await offlineDb.savePodcast(episode);
@@ -340,6 +353,7 @@ export const PodcastProvider: React.FC<{ children: React.ReactNode }> = ({ child
       } finally {
         podcastBusyRef.current = false;
         setPodcastGeneratingForFeed(null);
+        setPodcastGeneratingStage(null);
       }
     },
     [activeAiOverrides, favIdSetRef, feedsRef, podcastAvailable, refreshOfflineIds, showToast],
@@ -350,6 +364,7 @@ export const PodcastProvider: React.FC<{ children: React.ReactNode }> = ({ child
       podcastAvailable,
       activePodcast,
       podcastGeneratingForFeed,
+      podcastGeneratingStage,
       podcastError,
       dismissPodcastError,
       aiSettings,
@@ -365,6 +380,7 @@ export const PodcastProvider: React.FC<{ children: React.ReactNode }> = ({ child
       podcastAvailable,
       activePodcast,
       podcastGeneratingForFeed,
+      podcastGeneratingStage,
       podcastError,
       dismissPodcastError,
       aiSettings,

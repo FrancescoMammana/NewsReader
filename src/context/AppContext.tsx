@@ -97,6 +97,7 @@ interface AppContextValue {
   podcastAvailable: boolean;
   activePodcast: PodcastEpisode | null;
   podcastGeneratingForFeed: string | null;
+  podcastGeneratingStage: 'script' | 'audio' | null;
   podcastError: string | null;
   dismissPodcastError: () => void;
   aiSettings: AiSettingsPayload | null;
@@ -201,6 +202,7 @@ export function useApp(): AppContextValue {
       podcastAvailable: podcast.podcastAvailable,
       activePodcast: podcast.activePodcast,
       podcastGeneratingForFeed: podcast.podcastGeneratingForFeed,
+      podcastGeneratingStage: podcast.podcastGeneratingStage,
       podcastError: podcast.podcastError,
       dismissPodcastError: podcast.dismissPodcastError,
       aiSettings: podcast.aiSettings,

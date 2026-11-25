@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Heart, Moon, Newspaper, Plus, SlidersHorizontal, Sun } from 'lucide-react';
+import { Heart, Moon, Newspaper, Plus, Search, SlidersHorizontal, Sun } from 'lucide-react';
 import { type FontOption } from './types/tmw';
 import { useApp } from './context/AppContext';
 import { ItemView } from './components/ItemView';
@@ -11,6 +11,7 @@ import {
   ToastContainer,
 } from './components/Modals';
 import { ProfileView } from './components/ProfileView';
+import { SearchView } from './components/SearchView';
 import { FavoritesFeed } from './components/FavoritesFeed';
 import { OfflineIndicator, PWAInstallButton } from './components/PWAInstallButton';
 import { PodcastPlayer } from './components/PodcastPlayer';
@@ -69,6 +70,7 @@ export const App: React.FC = () => {
     if (
       activeTab !== 'profile' &&
       activeTab !== 'favorites' &&
+      activeTab !== 'search' &&
       !preferences.tabOrder.includes(activeTab)
     ) {
       setActiveTab(preferences.tabOrder[0] || 'profile');
@@ -130,6 +132,20 @@ export const App: React.FC = () => {
                 <div className="flex items-center gap-1.5 shrink-0">
                   <button
                     type="button"
+                    onClick={() => setActiveTab('search')}
+                    title="Ricerca"
+                    aria-label="Ricerca"
+                    className={`h-8 w-8 rounded-md flex items-center justify-center transition-colors cursor-pointer ${
+                      activeTab === 'search'
+                        ? 'text-white'
+                        : 'bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 text-neutral-700 dark:text-neutral-200'
+                    }`}
+                    style={activeTab === 'search' ? { backgroundColor: accentHex, color: '#ffffff' } : undefined}
+                  >
+                    <Search className="w-4 h-4" />
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => setActiveTab('favorites')}
                     title="Preferiti"
                     aria-label="Preferiti"
@@ -164,8 +180,8 @@ export const App: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => setActiveTab('profile')}
-                    title="Ricerca e Impostazioni"
-                    aria-label="Ricerca e Impostazioni"
+                    title="Impostazioni"
+                    aria-label="Impostazioni"
                     className={`h-8 w-8 rounded-md flex items-center justify-center transition-colors cursor-pointer ${
                       activeTab === 'profile'
                         ? 'bg-neutral-900 text-white dark:bg-white dark:text-neutral-900'
@@ -213,6 +229,8 @@ export const App: React.FC = () => {
               />
             ) : activeTab === 'favorites' ? (
               <FavoritesFeed />
+            ) : activeTab === 'search' ? (
+              <SearchView />
             ) : preferences.tabOrder.length === 0 ? (
               <div className="flex-1 flex flex-col items-center justify-center p-6 text-center gap-3">
                 <p className="text-sm font-medium text-neutral-700 dark:text-neutral-200">
@@ -264,8 +282,8 @@ export const App: React.FC = () => {
                 Seleziona un articolo per leggerlo.
               </p>
               <p className="text-xs text-neutral-400 dark:text-neutral-500 mt-1 max-w-xs">
-                Sfoglia i feed configurati, aggiungi nuove sorgenti RSS con + oppure usa Menu per
-                ricerca e impostazioni.
+                Sfoglia i feed configurati, aggiungi nuove sorgenti RSS con + oppure usa le icone
+                per ricerca, preferiti e impostazioni.
               </p>
             </div>
           )}

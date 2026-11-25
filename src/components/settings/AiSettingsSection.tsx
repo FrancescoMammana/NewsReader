@@ -51,14 +51,6 @@ export const AiSettingsSection: React.FC = () => {
     [profiles, audioModel],
   );
 
-  const filteredAudioSuggestions = useMemo(() => {
-    if (!providerKind) return [];
-    if (providerKind === 'gemini') {
-      return profiles.filter((p) => !p.id.includes('/'));
-    }
-    return profiles.filter((p) => p.id.includes('/') || p.id.startsWith('tts-'));
-  }, [profiles, providerKind]);
-
   const allowedFormats = useMemo(() => {
     if (selectedTtsProfile && selectedTtsProfile.formats.length > 0) {
       return selectedTtsProfile.formats;
@@ -129,7 +121,6 @@ export const AiSettingsSection: React.FC = () => {
     return null;
   }
 
-  const textSuggestions = providerKind ? aiSettings.catalog.textSuggestions[providerKind] : [];
   const defaultPreview =
     providerKind === 'gemini' ? aiSettings.defaults.gemini : aiSettings.defaults.openai;
 
@@ -179,36 +170,30 @@ export const AiSettingsSection: React.FC = () => {
             <span className="text-neutral-500 dark:text-neutral-400">Modello testo (Q&amp;A e copione)</span>
             <input
               type="text"
-              list="ai-text-models"
               value={textModel}
               onChange={(e) => setTextModel(e.target.value)}
               placeholder={defaultPreview.textModel}
               required
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
               className="mt-1 w-full px-2.5 py-1.5 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-transparent text-sm"
             />
-            <datalist id="ai-text-models">
-              {textSuggestions.map((m) => (
-                <option key={m} value={m} />
-              ))}
-            </datalist>
           </label>
 
           <label className="block text-xs">
             <span className="text-neutral-500 dark:text-neutral-400">Modello audio (TTS Podcast)</span>
             <input
               type="text"
-              list="ai-audio-models"
               value={audioModel}
               onChange={(e) => handleAudioModelChange(e.target.value)}
               placeholder={defaultPreview.audioModel}
               required
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
               className="mt-1 w-full px-2.5 py-1.5 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-transparent text-sm"
             />
-            <datalist id="ai-audio-models">
-              {filteredAudioSuggestions.map((p) => (
-                <option key={p.id} value={p.id} />
-              ))}
-            </datalist>
           </label>
 
           <div className={providerKind === 'openai' ? 'grid grid-cols-1 sm:grid-cols-2 gap-3' : ''}>

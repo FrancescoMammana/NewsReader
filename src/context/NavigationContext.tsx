@@ -37,7 +37,10 @@ export const NavigationProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       const saved = sessionStorage.getItem(ACTIVE_TAB_SESSION_KEY);
       if (
         saved &&
-        (saved === 'profile' || saved === 'favorites' || preferences.tabOrder.includes(saved))
+        (saved === 'profile' ||
+          saved === 'favorites' ||
+          saved === 'search' ||
+          preferences.tabOrder.includes(saved))
       ) {
         return saved;
       }
@@ -68,7 +71,11 @@ export const NavigationProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       if (itemHistoryStack.length > 0) {
         setItemHistoryStack((prev) => prev.slice(0, -1));
         setSplitViewExpanded(false);
-      } else if (activeTab === 'profile' || activeTab === 'favorites') {
+      } else if (
+        activeTab === 'profile' ||
+        activeTab === 'favorites' ||
+        activeTab === 'search'
+      ) {
         setActiveTab(preferences.tabOrder[0] || 'latest');
       }
     };

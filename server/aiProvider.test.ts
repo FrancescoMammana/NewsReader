@@ -5,13 +5,16 @@ import path from 'node:path';
 import test from 'node:test';
 import {
   AiProviderError,
+  extractPcmFromWav,
   isNonRetriableError,
   isPodcastAvailable,
   isTextAiAvailable,
   isTimeoutOrAbortError,
+  mergeAudioChunks,
   normalizeAndConvertAudio,
   normalizeAndValidateAudio,
   resolveAiConfigFromEnv,
+  splitTextForTts,
   wrapPcm16ToWav,
 } from './aiProvider.ts';
 import {
@@ -237,4 +240,42 @@ test('getAudioExtensionFromMime mappa correttamente le estensioni dinamiche', ()
   assert.equal(getAudioExtensionFromMime('audio/mp4'), '.m4a');
   assert.equal(getAudioExtensionFromMime('audio/aac'), '.aac');
   assert.equal(getAudioExtensionFromMime('audio/unknown'), '.audio');
+});
+
+test('splitTextForTts suddivide il copione rispettando paragrafi, frasi e limite caratteri', () => {
+  const sample = [
+    'Prima frase breve di apertura del giornale radio.',
+    'Seconda notizia lunga che racconta risultati sportivi importanti. Con due frasi separate ma coerenti.',
+    'Terza notizia finale di chiusura.',
+  ].join('\n\n');
+
+  const chunks = splitTextForTts(sample, 80);
+  assert.ok(chunks.length >= 2);
+  for (const chunk of chunks) {
+    assert.ok(chunk.length <= 80, `Chunk too long: ${chunk.length}`);
+  }
+  assert.equal(chunks.join(' ').includes('Prima frase breve'), true);
+  assert.equal(chunks.join(' ').includes('Terza notizia finale'), true);
+});
+
+test('mergeAudioChunks concatena WAV PCM16 senza perdita di header', () => {
+  const pcm1 = Buffer.from([1, 2, 3, 4]);
+  const pcm2 = Buffer.from([5, 6, 7, 8, 9, 10]);
+  const wav1 = wrapPcm16ToWav(pcm1, 24000, 1);
+  const wav2 = wrapPcm16ToWav(pcm2, 24000, 1);
+
+  const extracted = extractPcmFromWav(wav1);
+  assert.ok(extracted);
+  assert.equal(extracted.sampleRate, 24000);
+  assert.equal(extracted.channels, 1);
+  assert.deepEqual(extracted.pcm, pcm1);
+
+  const merged = mergeAudioChunks([
+    { buffer: wav1, mimeType: 'audio/wav' },
+    { buffer: wav2, mimeType: 'audio/wav' },
+  ]);
+  assert.equal(merged.mimeType, 'audio/wav');
+  assert.equal(merged.buffer.subarray(0, 4).toString('ascii'), 'RIFF');
+  assert.equal(merged.buffer.readUInt32LE(40), pcm1.length + pcm2.length);
+  assert.deepEqual(merged.buffer.subarray(44), Buffer.concat([pcm1, pcm2]));
 });
