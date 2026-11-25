@@ -1,4 +1,4 @@
-export type BuiltinStoryType = 'latest' | 'serieA' | 'estero' | 'serieB' | 'editoriale';
+export type BuiltinStoryType = 'latest' | 'serieA' | 'estero' | 'serieB' | 'editoriale' | 'favorites';
 export type StoryType = BuiltinStoryType | string;
 
 export type FeedKind = 'tmw' | 'rss';
@@ -176,7 +176,7 @@ export interface ItemScreenArgs {
   item: Item;
 }
 
-export type ProfileSubPage = 'fav' | 'search' | 'settings';
+export type ProfileSubPage = 'search' | 'settings';
 
 export interface ToastMessage {
   id: number;
@@ -201,4 +201,67 @@ export interface PodcastEpisode {
   audioBlob: Blob;
   generatedAt: number;
 }
+
+export type AiProviderKind = 'gemini' | 'openai';
+export type GeminiFieldKey = 'textModel' | 'audioModel' | 'voice';
+export type OpenAiFieldKey = 'textModel' | 'audioModel' | 'voice' | 'baseUrl' | 'audioFormat';
+
+export interface GeminiAiProfile {
+  textModel: string;
+  audioModel: string;
+  voice: string;
+  customizedFields: GeminiFieldKey[];
+}
+
+export interface OpenAiProfile {
+  baseUrl: string;
+  textModel: string;
+  audioModel: string;
+  voice: string;
+  audioFormat: string;
+  customizedFields: OpenAiFieldKey[];
+}
+
+export interface AiSettingsState {
+  gemini: GeminiAiProfile;
+  openai: OpenAiProfile;
+}
+
+export interface AiRuntimeOverrides {
+  textModel?: string;
+  audioModel?: string;
+  voice?: string;
+  baseUrl?: string;
+  audioFormat?: string;
+}
+
+export interface TtsModelProfile {
+  id: string;
+  voices: string[];
+  formats: string[];
+}
+
+export interface AiSettingsPayload {
+  providerKind: AiProviderKind | null;
+  available: boolean;
+  textAvailable: boolean;
+  defaults: {
+    gemini: Omit<GeminiAiProfile, 'customizedFields'> & { audioFormat: 'wav' };
+    openai: Omit<OpenAiProfile, 'customizedFields'>;
+  };
+  effective: {
+    textModel: string;
+    audioModel: string;
+    voice: string;
+    baseUrl?: string;
+    audioFormat?: string;
+    customizedFields: string[];
+  } | null;
+  stored: AiSettingsState;
+  catalog: {
+    textSuggestions: Record<AiProviderKind, string[]>;
+    ttsProfiles: TtsModelProfile[];
+  };
+}
+
 

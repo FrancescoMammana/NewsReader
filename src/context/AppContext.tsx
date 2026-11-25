@@ -1,5 +1,15 @@
 import React, { useCallback, useMemo } from 'react';
-import type { Item, ItemScreenArgs, PodcastEpisode, Preferences, Story, StoryType, ToastMessage } from '../types/tmw';
+import type {
+  AiRuntimeOverrides,
+  AiSettingsPayload,
+  Item,
+  ItemScreenArgs,
+  PodcastEpisode,
+  Preferences,
+  Story,
+  StoryType,
+  ToastMessage,
+} from '../types/tmw';
 import { FeedsProvider, type FeedBucket, type FeedMap, EMPTY_FEED_BUCKET, useFeeds } from './FeedsContext';
 import { LibraryProvider, useLibrary } from './LibraryContext';
 import { NavigationProvider, useNavigation } from './NavigationContext';
@@ -83,10 +93,17 @@ interface AppContextValue {
   ) => void;
   dismissToast: (id: number) => void;
 
-  // AI Podcast
+  // AI Podcast & Settings
   podcastAvailable: boolean;
   activePodcast: PodcastEpisode | null;
   podcastGeneratingForFeed: string | null;
+  podcastError: string | null;
+  dismissPodcastError: () => void;
+  aiSettings: AiSettingsPayload | null;
+  activeAiOverrides: AiRuntimeOverrides | undefined;
+  refreshAiSettings: () => Promise<AiSettingsPayload | null>;
+  saveAiSettings: (patch: AiRuntimeOverrides) => Promise<AiSettingsPayload>;
+  resetAiSettings: () => Promise<AiSettingsPayload>;
   generateFeedPodcast: (feedId: StoryType, forceRegenerate?: boolean) => Promise<void>;
   closePodcastPlayer: () => void;
   checkPodcastStatus: () => Promise<boolean>;
@@ -184,6 +201,13 @@ export function useApp(): AppContextValue {
       podcastAvailable: podcast.podcastAvailable,
       activePodcast: podcast.activePodcast,
       podcastGeneratingForFeed: podcast.podcastGeneratingForFeed,
+      podcastError: podcast.podcastError,
+      dismissPodcastError: podcast.dismissPodcastError,
+      aiSettings: podcast.aiSettings,
+      activeAiOverrides: podcast.activeAiOverrides,
+      refreshAiSettings: podcast.refreshAiSettings,
+      saveAiSettings: podcast.saveAiSettings,
+      resetAiSettings: podcast.resetAiSettings,
       generateFeedPodcast: podcast.generateFeedPodcast,
       closePodcastPlayer: podcast.closePodcastPlayer,
       checkPodcastStatus: podcast.checkPodcastStatus,

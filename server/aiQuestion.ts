@@ -4,6 +4,7 @@ import {
   getMissingConfigMessage,
   isTextAiAvailable,
   toAiHttpError,
+  type AiRuntimeOverrides,
 } from './aiProvider.ts';
 
 export const aiQuestionRouter = express.Router();
@@ -14,17 +15,26 @@ aiQuestionRouter.get('/api/gemini/status', (_req: Request, res: Response) => {
 });
 
 aiQuestionRouter.post('/api/gemini/qa', async (req: Request, res: Response) => {
-  if (!isTextAiAvailable()) {
-    res.status(503).json({ error: getMissingConfigMessage('text') });
-    return;
-  }
-
   const body = req.body as {
     title?: unknown;
     text?: unknown;
     question?: unknown;
     history?: unknown;
+    aiConfig?: AiRuntimeOverrides;
   };
+
+  const overrides: AiRuntimeOverrides | undefined =
+    body?.aiConfig && typeof body.aiConfig === 'object'
+      ? {
+          textModel: typeof body.aiConfig.textModel === 'string' ? body.aiConfig.textModel : undefined,
+          baseUrl: typeof body.aiConfig.baseUrl === 'string' ? body.aiConfig.baseUrl : undefined,
+        }
+      : undefined;
+
+  if (!isTextAiAvailable(process.env, overrides)) {
+    res.status(503).json({ error: getMissingConfigMessage('text') });
+    return;
+  }
 
   const title = typeof body?.title === 'string' ? body.title.trim() : '';
   const rawText = typeof body?.text === 'string' ? body.text.trim() : '';
@@ -52,6 +62,7 @@ aiQuestionRouter.post('/api/gemini/qa', async (req: Request, res: Response) => {
       prompt,
       maxOutputTokens: 500,
       temperature: 0.5,
+      overrides,
     });
 
     res.json({ answer: text || 'Nessuna risposta generata.' });

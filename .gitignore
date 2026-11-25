@@ -12,6 +12,9 @@ build/
 .env.*
 !.env.example
 
+# Runtime local data
+data/
+
 # Logs & OS files
 *.log
 npm-debug.log*

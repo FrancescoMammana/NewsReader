@@ -1,4 +1,5 @@
 import {
+  type AiSettingsState,
   type Comment,
   type ConfiguredFeed,
   type CustomRssFeed,
@@ -20,6 +21,7 @@ const KEYS = {
   BLOCKLIST: 'tmw_blocklist_v1',
   LAST_READ_STORY: 'tmw_last_read_story_v1',
   PODCAST_AVAILABLE: 'tmw_podcast_available_v1',
+  AI_SETTINGS: 'tmw_ai_settings_v1',
   NOTES: 'tmw_article_notes_v1',
   DRAFTS: 'tmw_drafts_v1',
   PREVIEW_CACHE: 'tmw_preview_cache_v1',
@@ -44,7 +46,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   isTapAnywhereToCollapseEnabled: true,
   isManualPaginationEnabled: false,
   isEyeCandyEnabled: false,
-  isTrueDarkModeEnabled: false,
+  isTrueDarkModeEnabled: true,
 };
 
 function readJson<T>(key: string, fallback: T): T {
@@ -222,6 +224,17 @@ export const storage = {
   },
   savePodcastAvailable(available: boolean): void {
     writeJson(KEYS.PODCAST_AVAILABLE, available);
+  },
+
+  getAiSettings(): AiSettingsState | null {
+    return readJson<AiSettingsState | null>(KEYS.AI_SETTINGS, null);
+  },
+  saveAiSettings(settings: AiSettingsState | null): void {
+    if (!settings) {
+      localStorage.removeItem(KEYS.AI_SETTINGS);
+    } else {
+      writeJson(KEYS.AI_SETTINGS, settings);
+    }
   },
 
   getArticleNotes(articleId: number): Comment[] {

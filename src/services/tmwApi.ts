@@ -1,4 +1,6 @@
 import type {
+  AiRuntimeOverrides,
+  AiSettingsPayload,
   PodcastSegment,
   Story,
   StoryType,
@@ -18,7 +20,22 @@ async function fetchJson<T>(url: string, options: FetchJsonOptions = {}): Promis
       ? AbortSignal.timeout(timeoutMs)
       : undefined);
 
-  const res = await fetch(url, { ...fetchInit, signal: effectiveSignal });
+  let res: Response;
+  try {
+    res = await fetch(url, { ...fetchInit, signal: effectiveSignal });
+  } catch (err) {
+    if (
+      err instanceof Error &&
+      (err.name === 'TimeoutError' ||
+        err.name === 'AbortError' ||
+        err.message.toLowerCase().includes('timed out'))
+    ) {
+      throw new Error(
+        `[timeout] Il server non ha risposto entro ${Math.round(timeoutMs / 1000)}s. Riprova tra poco o prova un modello più rapido.`,
+      );
+    }
+    throw err;
+  }
   const data = (await res.json().catch(() => null)) as (T & { error?: string }) | null;
 
   if (!res.ok || !data) {
@@ -33,7 +50,10 @@ export async function fetchTmwFeed(
 ): Promise<{ stories: Story[]; nextStart: number | null }> {
   return fetchJson<{ stories: Story[]; nextStart: number | null }>(
     `/api/tmw/feed?category=${encodeURIComponent(type)}&start=${start}&_t=${Date.now()}`,
-    { fallbackError: 'Failed to load TuttoMercatoWeb feed' },
+    {
+      fallbackError: 'Failed to load TuttoMercatoWeb feed',
+      timeoutMs: 30000,
+    },
   );
 }
 
@@ -45,7 +65,10 @@ export async function fetchCustomRssFeed(
   if (label) sp.set('label', label);
   const data = await fetchJson<{ feedTitle?: string; stories?: Story[] }>(
     `/api/rss/feed?${sp.toString()}`,
-    { fallbackError: 'Impossibile caricare il feed RSS' },
+    {
+      fallbackError: 'Impossibile caricare il feed RSS',
+      timeoutMs: 30000,
+    },
   );
   return {
     feedTitle: data.feedTitle,
@@ -100,14 +123,40 @@ export async function fetchPodcastStatus(): Promise<boolean> {
   return Boolean(data.available);
 }
 
+export async function fetchAiSettings(): Promise<AiSettingsPayload> {
+  return fetchJson<AiSettingsPayload>(`/api/ai/settings?_t=${Date.now()}`, {
+    timeoutMs: 8000,
+    fallbackError: 'Impossibile caricare le impostazioni AI.',
+  });
+}
+
+export async function saveAiSettingsApi(patch: AiRuntimeOverrides): Promise<AiSettingsPayload> {
+  return fetchJson<AiSettingsPayload>('/api/ai/settings', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+    timeoutMs: 8000,
+    fallbackError: 'Impossibile salvare le impostazioni AI.',
+  });
+}
+
+export async function resetAiSettingsApi(): Promise<AiSettingsPayload> {
+  return fetchJson<AiSettingsPayload>('/api/ai/settings/reset', {
+    method: 'POST',
+    timeoutMs: 8000,
+    fallbackError: 'Impossibile ripristinare le impostazioni AI predefinite.',
+  });
+}
+
 export async function generatePodcastApi(
   feedLabel: string,
   articles: PodcastArticleInput[],
+  aiConfig?: AiRuntimeOverrides,
 ): Promise<GeneratePodcastResponse> {
   const data = await fetchJson<Partial<GeneratePodcastResponse>>('/api/podcast/generate', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ feedLabel, articles }),
+    body: JSON.stringify({ feedLabel, articles, aiConfig }),
     timeoutMs: 90000,
     fallbackError: 'Impossibile generare il podcast AI.',
   });

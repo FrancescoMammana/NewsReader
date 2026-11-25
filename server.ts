@@ -6,7 +6,12 @@ import { tmwRouter } from './server/tmw.ts';
 import { rssRouter } from './server/rss.ts';
 import { linkPreviewRouter } from './server/linkPreview.ts';
 import { aiQuestionRouter } from './server/aiQuestion.ts';
-import { getMissingConfigMessage } from './server/aiProvider.ts';
+import { getMissingConfigMessage, type AiRuntimeOverrides } from './server/aiProvider.ts';
+import {
+  getPublicAiSettingsPayload,
+  resetStoredSettingsForActiveProvider,
+  updateStoredSettingsForActiveProvider,
+} from './server/aiSettings.ts';
 import {
   generatePodcastArtifacts,
   isPodcastAvailable,
@@ -57,20 +62,67 @@ app.use(rssRouter);
 app.use(linkPreviewRouter);
 app.use(aiQuestionRouter);
 
+function extractSafeAiOverrides(raw: unknown): AiRuntimeOverrides | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const obj = raw as Record<string, unknown>;
+  const overrides: AiRuntimeOverrides = {};
+  if (typeof obj.textModel === 'string' && obj.textModel.trim()) {
+    overrides.textModel = obj.textModel.trim();
+  }
+  if (typeof obj.audioModel === 'string' && obj.audioModel.trim()) {
+    overrides.audioModel = obj.audioModel.trim();
+  }
+  if (typeof obj.voice === 'string' && obj.voice.trim()) {
+    overrides.voice = obj.voice.trim();
+  }
+  if (typeof obj.baseUrl === 'string' && obj.baseUrl.trim()) {
+    overrides.baseUrl = obj.baseUrl.trim();
+  }
+  if (typeof obj.audioFormat === 'string' && obj.audioFormat.trim()) {
+    overrides.audioFormat = obj.audioFormat.trim();
+  }
+  return Object.keys(overrides).length > 0 ? overrides : undefined;
+}
+
+app.get('/api/ai/settings', async (_req: Request, res: Response) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.json(await getPublicAiSettingsPayload());
+});
+
+app.put('/api/ai/settings', async (req: Request, res: Response) => {
+  const body = (req.body || {}) as Record<string, unknown>;
+  const safePatch = extractSafeAiOverrides(body) ?? {};
+  updateStoredSettingsForActiveProvider(safePatch);
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.json(await getPublicAiSettingsPayload());
+});
+
+app.post('/api/ai/settings/reset', async (_req: Request, res: Response) => {
+  resetStoredSettingsForActiveProvider();
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.json(await getPublicAiSettingsPayload());
+});
+
 app.get('/api/podcast/status', (_req: Request, res: Response) => {
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
   res.json({ available: isPodcastAvailable() });
 });
 
 app.post('/api/podcast/generate', async (req: Request, res: Response) => {
-  if (!isPodcastAvailable()) {
+  const body = req.body as {
+    feedLabel?: unknown;
+    articles?: unknown;
+    aiConfig?: unknown;
+  };
+  const overrides = extractSafeAiOverrides(body?.aiConfig);
+
+  if (!isPodcastAvailable(overrides)) {
     res.status(503).json({
       error: getMissingConfigMessage('podcast'),
     });
     return;
   }
 
-  const body = req.body as { feedLabel?: unknown; articles?: unknown };
   const feedLabel =
     typeof body?.feedLabel === 'string' && body.feedLabel.trim()
       ? body.feedLabel.trim().slice(0, 80)
@@ -82,7 +134,7 @@ app.post('/api/podcast/generate', async (req: Request, res: Response) => {
   }
 
   try {
-    res.json(await generatePodcastArtifacts(feedLabel, articles));
+    res.json(await generatePodcastArtifacts(feedLabel, articles, overrides));
   } catch (err) {
     const { status, message } = podcastHttpError(err);
     res.status(status).json({ error: message });

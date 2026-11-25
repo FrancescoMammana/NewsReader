@@ -148,7 +148,7 @@ async function fetchTmwRssMap(): Promise<
   const map = new Map<number, { text: string; image?: string; time?: number; category?: string }>();
   try {
     const r = await fetch(`${TMW_BASE}/rss/`, {
-      signal: AbortSignal.timeout(6000),
+      signal: AbortSignal.timeout(7000),
       headers: { 'User-Agent': USER_AGENT },
     });
     if (!r.ok) return map;
@@ -179,7 +179,7 @@ async function fetchTmwRssMap(): Promise<
 
 export async function fetchTmwArticleDto(targetUrl: string): Promise<TmwStoryDto> {
   const response = await fetch(targetUrl, {
-    signal: AbortSignal.timeout(9000),
+    signal: AbortSignal.timeout(12000),
     headers: { 'User-Agent': USER_AGENT },
   });
   if (!response.ok) {
@@ -305,7 +305,7 @@ tmwRouter.get('/api/tmw/feed', async (req: Request, res: Response) => {
   try {
     const [htmlRes, rssMap] = await Promise.all([
       fetch(targetUrl, {
-        signal: AbortSignal.timeout(9000),
+        signal: AbortSignal.timeout(12000),
         headers: { 'User-Agent': USER_AGENT },
       }),
       start === 0 ? fetchTmwRssMap() : Promise.resolve(new Map()),
@@ -362,7 +362,7 @@ tmwRouter.get('/api/tmw/search', async (req: Request, res: Response) => {
       : `${TMW_BASE}/ricerca/${start > 0 ? `?start=${start}` : ''}`;
 
     const response = await fetch(searchUrl, {
-      signal: AbortSignal.timeout(9000),
+      signal: AbortSignal.timeout(12000),
       headers: { 'User-Agent': USER_AGENT },
     });
     if (!response.ok) {

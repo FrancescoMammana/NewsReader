@@ -189,7 +189,18 @@ export const FeedsProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       }));
 
       try {
-        const { stories, nextStart } = await fetchFeedByKey(type, 0);
+        let result: { stories: Story[]; nextStart: number | null; feedTitle?: string };
+        try {
+          result = await fetchFeedByKey(type, 0);
+        } catch (firstErr) {
+          if (typeof navigator !== 'undefined' && !navigator.onLine) {
+            throw firstErr;
+          }
+          await new Promise((resolve) => setTimeout(resolve, 2000));
+          result = await fetchFeedByKey(type, 0);
+        }
+
+        const { stories, nextStart } = result;
         void offlineDb.saveFeedStories(type, stories);
         void prefetchTabArticles(stories, 15);
 
@@ -216,7 +227,12 @@ export const FeedsProvider: React.FC<{ children: React.ReactNode }> = ({ childre
               error: null,
             },
           }));
-          showToast('Connessione assente: mostrati gli articoli in cache');
+          const isOnline = typeof navigator === 'undefined' || navigator.onLine;
+          showToast(
+            isOnline
+              ? 'Server o feed momentaneamente non raggiungibile: mostrati gli articoli in cache'
+              : 'Connessione assente: mostrati gli articoli in cache',
+          );
         } else {
           const msg =
             err instanceof Error && err.message

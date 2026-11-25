@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Bot, Loader2, RotateCcw, Send, Sparkles, X } from 'lucide-react';
+import { Bot, Languages, Loader2, RotateCcw, Send, Sparkles, X } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import type { Story } from '../types/tmw';
 
@@ -12,14 +12,30 @@ interface ChatMessage {
   content: string;
 }
 
+function detectIsForeignSource(article: Story): boolean {
+  const textToCheck = `${article.url || ''} ${article.category || ''} ${article.by || ''} ${article.title || ''}`.toLowerCase();
+  const domain = article.url ? new URL(article.url).hostname.toLowerCase() : '';
+
+  const italianKeywords = ['tuttomercatoweb', 'gazzetta', 'corriere', 'repubblica', 'ansa', 'sportmediaset', 'tuttojuve', 'calciomercato'];
+  if (italianKeywords.some((k) => domain.includes(k) || textToCheck.includes(k))) {
+    return false;
+  }
+
+  const foreignDomains = ['.com', '.co.uk', '.es', '.fr', '.de', '.com.br', '.org', '.net', 'marca', 'as.com', 'lequipe', 'bbc', 'skysports', 'bild'];
+  return foreignDomains.some((d) => domain.includes(d) || textToCheck.includes(d));
+}
+
 export const ArticleAiAssistant: React.FC<ArticleAiAssistantProps> = ({ article }) => {
-  const { accentHex, podcastAvailable } = useApp();
+  const { accentHex, podcastAvailable, aiSettings, activeAiOverrides } = useApp();
+  const textAiAvailable = aiSettings ? aiSettings.textAvailable : podcastAvailable;
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const chatScrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  const isForeign = detectIsForeignSource(article);
 
   useEffect(() => {
     setOpen(false);
@@ -40,18 +56,15 @@ export const ArticleAiAssistant: React.FC<ArticleAiAssistantProps> = ({ article 
     }
   }, [messages, loading, open]);
 
-  if (!podcastAvailable) {
+  if (!textAiAvailable) {
     return null;
   }
 
-  const handleSend = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const q = input.trim();
-    if (!q || loading) return;
+  const executePrompt = async (questionText: string) => {
+    if (!questionText.trim() || loading) return;
 
-    const newMessages: ChatMessage[] = [...messages, { role: 'user', content: q }];
+    const newMessages: ChatMessage[] = [...messages, { role: 'user', content: questionText }];
     setMessages(newMessages);
-    setInput('');
     setLoading(true);
 
     try {
@@ -61,8 +74,9 @@ export const ArticleAiAssistant: React.FC<ArticleAiAssistantProps> = ({ article 
         body: JSON.stringify({
           title: article.title,
           text: article.text || article.subtitle || '',
-          question: q,
+          question: questionText,
           history: messages,
+          aiConfig: activeAiOverrides,
         }),
       });
       const data = await res.json();
@@ -82,6 +96,19 @@ export const ArticleAiAssistant: React.FC<ArticleAiAssistantProps> = ({ article 
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleSend = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const q = input.trim();
+    if (!q || loading) return;
+    setInput('');
+    await executePrompt(q);
+  };
+
+  const handleTranslate = async () => {
+    if (loading) return;
+    await executePrompt('Traduci questo articolo in italiano in modo fluido, accurato e naturale.');
   };
 
   if (!open) {
@@ -135,6 +162,24 @@ export const ArticleAiAssistant: React.FC<ArticleAiAssistantProps> = ({ article 
           </button>
         </div>
       </div>
+
+      {isForeign && (
+        <div className="px-3 py-2 bg-neutral-50 dark:bg-neutral-950/60 border-b border-neutral-200 dark:border-neutral-800 flex items-center justify-between gap-2">
+          <span className="text-[11px] text-neutral-500 dark:text-neutral-400">
+            Fonte estera rilevata
+          </span>
+          <button
+            type="button"
+            disabled={loading}
+            onClick={() => void handleTranslate()}
+            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium text-white shadow-xs transition-transform active:scale-95 disabled:opacity-50 cursor-pointer"
+            style={{ backgroundColor: accentHex }}
+          >
+            <Languages className="w-3.5 h-3.5" />
+            <span>Traduci in italiano</span>
+          </button>
+        </div>
+      )}
 
       {messages.length > 0 && (
         <div

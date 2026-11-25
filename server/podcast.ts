@@ -6,6 +6,7 @@ import {
   isPodcastAvailable as isProviderPodcastAvailable,
   synthesizeAiSpeech,
   toAiHttpError,
+  type AiRuntimeOverrides,
 } from './aiProvider.ts';
 
 export interface PodcastInputArticle {
@@ -43,8 +44,8 @@ interface GeneratedScriptPayload {
 
 const MAX_SCRIPT_CHARS = 4500;
 
-export function isPodcastAvailable(): boolean {
-  return isProviderPodcastAvailable();
+export function isPodcastAvailable(overrides?: AiRuntimeOverrides): boolean {
+  return isProviderPodcastAvailable(process.env, overrides);
 }
 
 function cleanText(raw: string): string {
@@ -147,6 +148,7 @@ function parseScriptJson(raw: string): GeneratedScriptPayload {
 async function generateScript(
   feedLabel: string,
   articles: PreparedPodcastArticle[],
+  overrides?: AiRuntimeOverrides,
 ): Promise<{ episodeTitle: string; fullScript: string; segments: PodcastArtifacts['segments'] }> {
   const articlesPromptBlock = articles
     .map(
@@ -162,6 +164,7 @@ async function generateScript(
     prompt,
     jsonSchema: scriptResponseSchema,
     thinkingMinimalForGemini3: true,
+    overrides,
   });
 
   const parsed = parseScriptJson(rawText);
@@ -208,13 +211,21 @@ async function generateScript(
 export async function generatePodcastArtifacts(
   feedLabel: string,
   articles: PreparedPodcastArticle[],
+  overrides?: AiRuntimeOverrides,
 ): Promise<PodcastArtifacts> {
-  if (!isPodcastAvailable()) {
-    throw new AiProviderError(503, getMissingConfigMessage('podcast'));
+  if (!isPodcastAvailable(overrides)) {
+    throw new AiProviderError(503, getMissingConfigMessage('podcast'), 'configurazione');
   }
 
-  const { episodeTitle, fullScript, segments } = await generateScript(feedLabel, articles);
-  const { audioBase64, mimeType } = await synthesizeAiSpeech(fullScript.slice(0, MAX_SCRIPT_CHARS));
+  const { episodeTitle, fullScript, segments } = await generateScript(
+    feedLabel,
+    articles,
+    overrides,
+  );
+  const { audioBase64, mimeType } = await synthesizeAiSpeech(
+    fullScript.slice(0, MAX_SCRIPT_CHARS),
+    overrides,
+  );
 
   return {
     episodeTitle,

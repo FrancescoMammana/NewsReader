@@ -16,28 +16,28 @@ A modern, responsive Progressive Web Application (PWA) built with **React**, **T
 - **Multi-Source Search & Favorites**: Search across all loaded feeds and cached offline articles by keyword or date range, manage favorites, and export/import bookmarks.
 - **Customizable Typography & Themes**: Choose from multiple font families, text scale factors, accent colors, and Light/Dark Mode toggle.
 - **PWA Installable**: Install as a native-like app on desktop and mobile devices.
-- **Italian AI Audio Podcast (Optional / Self-Hosted)**: When AI is configured on the server, a **Podcast** button automatically appears in every feed tab. It reads up to the latest 15 articles (automatically translating foreign-language sources into natural Italian), synthesizes speech without server-side transcoding, caches audio blobs and transcripts in IndexedDB for offline replay, and provides a persistent mini-player with speed controls, transcript, and dynamic-extension **Scarica audio** download.
+- **Italian AI Audio Podcast & In-App Model Settings**: When `GEMINI_API_KEY` or `OPENAI_API_KEY` is configured on the server, a **Podcast** button appears in every feed tab. Configure text model, audio model, voice, and (for OpenAI-compatible providers) base URL and audio format directly in **Settings -> Podcast e Assistente AI**. Raw PCM (`audio/l16`, `audio/pcm`) streams are automatically wrapped into a valid RIFF/WAVE container (`audio/wav`) server-side for cross-browser playback and **Scarica audio** downloads.
 
 ### AI Configuration (Gemini & OpenAI-Compatible)
-Keep your API keys out of Git (`.env` is gitignored; `.env.example` provides the template). Configuration uses **five environment variables** (no `AI_PROVIDER` variable):
+Keep API keys out of Git (`.env` is gitignored; `.env.example` provides the template). API keys are configured exclusively on the server and are never exposed to the browser:
 
 ```env
 GEMINI_API_KEY=
 OPENAI_API_KEY=
+
+# Optional environment overrides (fallback/override for non-customized fields)
 OPENAI_BASE_URL=
 TEXT_MODEL=
 AUDIO_MODEL=
 ```
 
-- **Provider Priority**: If `GEMINI_API_KEY` is set, the server always uses Google Gemini (`@google/genai`) and ignores `OPENAI_API_KEY` and `OPENAI_BASE_URL`. When `GEMINI_API_KEY` is empty, both `OPENAI_API_KEY` and `OPENAI_BASE_URL` are required via the official `openai` SDK.
-- **Models**: `TEXT_MODEL` powers podcast script generation and article Q&A; `AUDIO_MODEL` powers TTS synthesis.
-- **Example (OpenRouter)**:
-  - `OPENAI_BASE_URL=https://openrouter.ai/api/v1`
-  - `TEXT_MODEL=<supported_chat_model>`
-  - `AUDIO_MODEL=<supported_tts_model>`
-- **TTS Requirements & Limits**: Not all OpenAI-compatible models support Chat `response_format` JSON or `/audio/speech` TTS. The server streams the provider's original audio bytes without transcoding and derives the download extension from the actual MIME type (`.mp3`, `.wav`, `.ogg`, `.m4a`, `.aac`). Raw unplayable PCM streams or non-audio payloads are rejected explicitly.
-- **Local / VPS**: Copy `.env.example` to `.env`, fill in your provider credentials plus `TEXT_MODEL` and `AUDIO_MODEL`, and restart the server.
-- **Render**: Open your Web Service -> **Environment -> Environment Variables**, add the variables above, and save/redeploy.
+- **Provider Priority**: If `GEMINI_API_KEY` is set, the server always uses Google Gemini (`@google/genai`) and ignores `OPENAI_API_KEY`. Otherwise, `OPENAI_API_KEY` enables the OpenAI-compatible SDK (`openai`).
+- **Built-in Economic Defaults**:
+  - **Gemini**: `textModel = gemini-3.1-flash-lite`, `audioModel = gemini-3.8-flash-lite-tts`, `voice = Kore`, format `wav`.
+  - **OpenAI-compatible / OpenRouter**: `OPENAI_BASE_URL = https://openrouter.ai/api/v1`, `textModel = mistralai/mistral-nemo`, `audioModel = hexgrad/kokoro-82m`, `voice = if_sara`, `audioFormat = mp3`.
+- **In-App Settings & Hybrid Persistence**: Non-secret model, voice, URL, and format settings are stored per active provider on disk (`data/ai-settings.json`, or `AI_SETTINGS_PATH`) and synced with browser `localStorage` (`tmw_ai_settings_v1`) so custom selections survive server redeploys. Use **Ripristina valori predefiniti** inside Settings to reset only the active provider.
+- **Local / VPS**: Copy `.env.example` to `.env`, set either `GEMINI_API_KEY` or `OPENAI_API_KEY`, and restart the server.
+- **Render**: Open your Web Service -> **Environment -> Environment Variables**, add `GEMINI_API_KEY` or `OPENAI_API_KEY`, and save/redeploy.
 
 ### Development
 ```bash
@@ -65,28 +65,28 @@ Una Progressive Web Application (PWA) moderna e reattiva, sviluppata con **React
 - **Ricerca Multi-Fonte e Preferiti**: Cerca tra tutti i feed caricati e gli articoli salvati offline per parola chiave o intervallo di date, gestisci i preferiti ed esporta/importa i segnalibri.
 - **Tipografia e Temi Personalizzabili**: Scegli tra diversi font, fattori di scala del testo, colori di accento e attivazione rapida del tema Chiaro / Scuro.
 - **Installabile come PWA**: Installabile come applicazione nativa su desktop e dispositivi mobili.
-- **Podcast Audio AI in Italiano (Opzionale / Self-Hosted)**: Se il backend AI è configurato, in ogni feed appare il pulsante **Podcast**. Legge fino agli ultimi 15 articoli (traducendo automaticamente in italiano naturale eventuali notizie in altre lingue), salva audio e trascrizione in IndexedDB per il riascolto offline e offre un mini-player persistente con velocità regolabile, trascrizione cliccabile e pulsante **Scarica audio** con estensione dinamica basata sul MIME type reale.
+- **Podcast Audio AI in Italiano e Impostazioni Modelli in App**: Quando `GEMINI_API_KEY` o `OPENAI_API_KEY` è configurata sul server, in ogni feed appare il pulsante **Podcast**. Puoi configurare modello testo, modello audio, voce e (solo per OpenAI-compatible) URL provider e formato audio direttamente da **Impostazioni -> Podcast e Assistente AI**. Eventuali flussi audio PCM grezzi (`audio/l16`, `audio/pcm`) vengono incapsulati automaticamente lato server in un contenitore RIFF/WAVE (`audio/wav`) riproducibile su tutti i browser e scaricabile con **Scarica audio**.
 
 ### Configurazione AI (Gemini e OpenAI-Compatible)
-Non inserire mai le chiavi API su Git (`.env` è già ignorato da Git; `.env.example` funge da modello). La configurazione usa **cinque variabili d'ambiente** (nessuna variabile `AI_PROVIDER`):
+Non inserire mai le chiavi API su Git (`.env` è già ignorato da Git; `.env.example` funge da modello). Le chiavi restano sempre e solo sul server e non vengono mai esposte al browser:
 
 ```env
 GEMINI_API_KEY=
 OPENAI_API_KEY=
+
+# Override opzionali via ambiente (per campi non personalizzati in app)
 OPENAI_BASE_URL=
 TEXT_MODEL=
 AUDIO_MODEL=
 ```
 
-- **Precedenza dei Provider**: Se `GEMINI_API_KEY` è valorizzata, il server usa esclusivamente Google Gemini (`@google/genai`) ignorando `OPENAI_API_KEY` e `OPENAI_BASE_URL`. Se `GEMINI_API_KEY` è assente, sono richieste sia `OPENAI_API_KEY` sia `OPENAI_BASE_URL` tramite SDK ufficiale `openai`.
-- **Modelli**: `TEXT_MODEL` gestisce la scrittura del copione Podcast e il Q&A sugli articoli; `AUDIO_MODEL` gestisce la sintesi vocale TTS.
-- **Esempio OpenRouter**:
-  - `OPENAI_BASE_URL=https://openrouter.ai/api/v1`
-  - `TEXT_MODEL=<modello_testuale_supportato>`
-  - `AUDIO_MODEL=<modello_tts_supportato>`
-- **Requisiti e Limiti TTS**: Non tutti i provider o modelli OpenAI-compatible supportano TTS (`/audio/speech`) o `response_format` JSON. Il server restituisce i byte originali senza conversione audio e il client usa il MIME type reale (`.mp3`, `.wav`, `.ogg`, `.m4a`, `.aac`). Flussi PCM grezzi o risposte non audio vengono segnalati esplicitamente.
-- **Locale / VPS**: Copia `.env.example` in `.env`, imposta credenziali e modelli e avvia il server.
-- **Render**: Apri il Web Service su Render -> **Environment -> Environment Variables**, aggiungi le variabili e salva/riavvia.
+- **Precedenza dei Provider**: Se `GEMINI_API_KEY` è valorizzata, il server usa esclusivamente Google Gemini (`@google/genai`) ignorando `OPENAI_API_KEY`. Se assente, `OPENAI_API_KEY` attiva il provider OpenAI-compatible tramite SDK ufficiale `openai`.
+- **Valori Predefiniti Economici Integrati**:
+  - **Gemini**: `textModel = gemini-3.1-flash-lite`, `audioModel = gemini-3.8-flash-lite-tts`, `voice = Kore`, formato `wav`.
+  - **OpenAI-compatible / OpenRouter**: `OPENAI_BASE_URL = https://openrouter.ai/api/v1`, `textModel = mistralai/mistral-nemo`, `audioModel = hexgrad/kokoro-82m`, `voice = if_sara`, formato `mp3`.
+- **Impostazioni in App e Persistenza Ibrida**: I parametri non segreti (modelli, voce, URL e formato) sono salvati per singolo provider su file server (`data/ai-settings.json` o `AI_SETTINGS_PATH`) e sincronizzati con il browser (`tmw_ai_settings_v1`) per sopravvivere ai redeploy (es. Render). Il pulsante **Ripristina valori predefiniti** ripristina solo il provider attualmente attivo.
+- **Locale / VPS**: Copia `.env.example` in `.env`, imposta `GEMINI_API_KEY` oppure `OPENAI_API_KEY` e avvia il server.
+- **Render**: Apri il Web Service su Render -> **Environment -> Environment Variables**, aggiungi `GEMINI_API_KEY` oppure `OPENAI_API_KEY` e salva/riavvia.
 
 ### Sviluppo
 ```bash

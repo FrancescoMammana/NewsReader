@@ -2,6 +2,7 @@ import React from 'react';
 import { WifiOff } from 'lucide-react';
 import { useLibrary } from '../context/AppContext';
 import { PWAInstallButton } from './PWAInstallButton';
+import { AiSettingsSection } from './settings/AiSettingsSection';
 import { AppearanceSettingsSection } from './settings/AppearanceSettingsSection';
 import { FeedsSettingsSection } from './settings/FeedsSettingsSection';
 import { FiltersSettingsSection } from './settings/FiltersSettingsSection';
@@ -41,6 +42,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       </div>
 
       <FeedsSettingsSection />
+      <AiSettingsSection />
       <AppearanceSettingsSection />
       <FiltersSettingsSection />
       <StorageAndAboutSection

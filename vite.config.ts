@@ -52,7 +52,7 @@ export default defineConfig({
             handler: 'NetworkFirst',
             options: {
               cacheName: 'tmw-api-cache',
-              networkTimeoutSeconds: 5,
+              networkTimeoutSeconds: 30,
               expiration: {
                 maxEntries: 150,
                 maxAgeSeconds: 60 * 60 * 24 * 7,

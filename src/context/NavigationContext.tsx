@@ -35,7 +35,10 @@ export const NavigationProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const [activeTab, setActiveTab] = useState<StoryType | 'profile'>(() => {
     try {
       const saved = sessionStorage.getItem(ACTIVE_TAB_SESSION_KEY);
-      if (saved && (saved === 'profile' || preferences.tabOrder.includes(saved))) {
+      if (
+        saved &&
+        (saved === 'profile' || saved === 'favorites' || preferences.tabOrder.includes(saved))
+      ) {
         return saved;
       }
     } catch {
@@ -65,7 +68,7 @@ export const NavigationProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       if (itemHistoryStack.length > 0) {
         setItemHistoryStack((prev) => prev.slice(0, -1));
         setSplitViewExpanded(false);
-      } else if (activeTab === 'profile') {
+      } else if (activeTab === 'profile' || activeTab === 'favorites') {
         setActiveTab(preferences.tabOrder[0] || 'latest');
       }
     };

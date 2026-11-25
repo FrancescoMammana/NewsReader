@@ -4,10 +4,9 @@ import {
   CheckCircle2,
   CircleDashed,
   Heart,
+  Languages,
   Maximize2,
   Minimize2,
-  Pin,
-  PinOff,
   RefreshCw,
   Share2,
   Type,
@@ -22,8 +21,9 @@ interface ItemToolbarProps {
   onBack: () => void;
   fontSize: FontSizeOption;
   onSelectFontSize: (size: FontSizeOption) => void;
-  pinned: boolean;
-  onTogglePin: () => void;
+  translated: boolean;
+  onToggleTranslate: () => void;
+  translating: boolean;
   faved: boolean;
   onToggleFav: () => void;
   onShare: () => void;
@@ -41,8 +41,9 @@ export const ItemToolbar: React.FC<ItemToolbarProps> = ({
   onBack,
   fontSize,
   onSelectFontSize,
-  pinned,
-  onTogglePin,
+  translated,
+  onToggleTranslate,
+  translating,
   faved,
   onToggleFav,
   onShare,
@@ -117,12 +118,14 @@ export const ItemToolbar: React.FC<ItemToolbarProps> = ({
 
         <button
           type="button"
-          onClick={onTogglePin}
-          className="p-2 rounded-lg hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-700 dark:text-neutral-200"
-          style={pinned ? { color: accentHex } : undefined}
-          title={pinned ? 'Unpin article' : 'Pin article'}
+          onClick={onToggleTranslate}
+          disabled={translating}
+          className="p-2 rounded-lg hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-700 dark:text-neutral-200 disabled:opacity-50 cursor-pointer"
+          style={translated ? { color: accentHex } : undefined}
+          title={translated ? 'Mostra originale' : 'Traduci in italiano'}
+          aria-label={translated ? 'Mostra originale' : 'Traduci in italiano'}
         >
-          {pinned ? <PinOff className="w-4 h-4" /> : <Pin className="w-4 h-4" />}
+          <Languages className={`w-4 h-4 ${translating ? 'animate-pulse' : ''}`} />
         </button>
 
         <button

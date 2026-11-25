@@ -1,9 +1,10 @@
-import React, { useEffect, useMemo, useRef } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ExternalLink } from 'lucide-react';
-import { FONT_SIZE_OPTIONS, type FontSizeOption, type ItemScreenArgs } from '../types/tmw';
+import { FONT_SIZE_OPTIONS, type FontSizeOption, type ItemScreenArgs, type Story } from '../types/tmw';
 import { useLibrary, useNavigation, usePreferences, useToasts } from '../context/AppContext';
 import { useArticleLoader } from '../hooks/useArticleLoader';
 import { formatTimestamp, getReadableUrl } from '../utils/formatting';
+import { translateTextClient } from '../services/translator';
 import { ArticleAiAssistant } from './ArticleAiAssistant';
 import { ItemText } from './ItemText';
 import { ItemToolbar } from './ItemToolbar';
@@ -16,8 +17,7 @@ interface ItemViewProps {
 export const ItemView: React.FC<ItemViewProps> = ({ args, isSplitView }) => {
   const { preferences, updatePreference, accentHex } = usePreferences();
   const { showToast } = useToasts();
-  const { isFav, toggleFav, isPinned, togglePin, isOfflineCached, cacheArticleOffline } =
-    useLibrary();
+  const { isFav, toggleFav, isOfflineCached, cacheArticleOffline } = useLibrary();
   const {
     openItem,
     goBackItem,
@@ -29,14 +29,57 @@ export const ItemView: React.FC<ItemViewProps> = ({ args, isSplitView }) => {
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
-  const { article, loading, imgFailed, setImgFailed, reloadArticle } = useArticleLoader({
+  const { article: rawArticle, loading, imgFailed, setImgFailed, reloadArticle } = useArticleLoader({
     item: args.item,
     cacheArticleOffline,
   });
 
+  const [translated, setTranslated] = useState(false);
+  const [translating, setTranslating] = useState(false);
+  const [translatedArticle, setTranslatedArticle] = useState<Story | null>(null);
+
   useEffect(() => {
+    setTranslated(false);
+    setTranslatedArticle(null);
     scrollContainerRef.current?.scrollTo({ top: 0 });
   }, [args]);
+
+  const article = translated && translatedArticle ? translatedArticle : rawArticle;
+
+  const handleToggleTranslate = async () => {
+    if (translated) {
+      setTranslated(false);
+      return;
+    }
+    if (translatedArticle) {
+      setTranslated(true);
+      return;
+    }
+
+    setTranslating(true);
+    try {
+      const titleTask = rawArticle.title ? translateTextClient(rawArticle.title, 'it') : Promise.resolve('');
+      const subtitleTask = rawArticle.subtitle ? translateTextClient(rawArticle.subtitle, 'it') : Promise.resolve('');
+      const textTask = rawArticle.text ? translateTextClient(rawArticle.text, 'it') : Promise.resolve('');
+
+      const [title, subtitle, text] = await Promise.all([titleTask, subtitleTask, textTask]);
+
+      const translatedObj: Story = {
+        ...rawArticle,
+        title: title || rawArticle.title,
+        subtitle: subtitle || rawArticle.subtitle,
+        text: text || rawArticle.text,
+      };
+
+      setTranslatedArticle(translatedObj);
+      setTranslated(true);
+      showToast('Articolo tradotto in italiano', { variant: 'success' });
+    } catch {
+      showToast('Impossibile tradurre l\'articolo in automatico.', { variant: 'error' });
+    } finally {
+      setTranslating(false);
+    }
+  };
 
   const activeFontSizePx = useMemo(() => {
     return FONT_SIZE_OPTIONS.find((f) => f.id === preferences.fontSize)?.px ?? 15;
@@ -44,7 +87,6 @@ export const ItemView: React.FC<ItemViewProps> = ({ args, isSplitView }) => {
 
   const domain = getReadableUrl(article.url);
   const faved = isFav(article.id);
-  const pinned = isPinned(article.id);
   const offlineReady = isOfflineCached(article.id, article.url);
 
   const handleShare = async () => {
@@ -88,10 +130,11 @@ export const ItemView: React.FC<ItemViewProps> = ({ args, isSplitView }) => {
         onBack={() => (itemHistoryStack.length > 1 ? goBackItem() : closeItem())}
         fontSize={preferences.fontSize}
         onSelectFontSize={(size: FontSizeOption) => updatePreference('fontSize', size)}
-        pinned={pinned}
-        onTogglePin={() => togglePin(article)}
+        translated={translated}
+        onToggleTranslate={() => void handleToggleTranslate()}
+        translating={translating}
         faved={faved}
-        onToggleFav={() => toggleFav(article)}
+        onToggleFav={() => toggleFav(rawArticle)}
         onShare={handleShare}
         loading={loading}
         onReload={() => void reloadArticle()}

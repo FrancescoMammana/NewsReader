@@ -23,7 +23,7 @@ rssRouter.get('/api/rss/feed', async (req: Request, res: Response) => {
 
   try {
     const response = await fetch(targetUrl, {
-      signal: AbortSignal.timeout(10000),
+      signal: AbortSignal.timeout(15000),
       redirect: 'follow',
       cache: 'no-store',
       headers: {
@@ -172,7 +172,7 @@ rssRouter.get('/api/rss/article', async (req: Request, res: Response) => {
 
   try {
     const response = await fetch(targetUrl, {
-      signal: AbortSignal.timeout(9000),
+      signal: AbortSignal.timeout(12000),
       redirect: 'follow',
       headers: {
         'User-Agent': USER_AGENT,

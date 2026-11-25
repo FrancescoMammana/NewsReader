@@ -7,8 +7,22 @@ import React, {
   useRef,
   useState,
 } from 'react';
-import type { PodcastEpisode, Story, StoryType } from '../types/tmw';
-import { fetchPodcastStatus, fetchTmwArticle, generatePodcastApi } from '../services/tmwApi';
+import type {
+  AiRuntimeOverrides,
+  AiSettingsPayload,
+  AiSettingsState,
+  PodcastEpisode,
+  Story,
+  StoryType,
+} from '../types/tmw';
+import {
+  fetchAiSettings,
+  fetchPodcastStatus,
+  fetchTmwArticle,
+  generatePodcastApi,
+  resetAiSettingsApi,
+  saveAiSettingsApi,
+} from '../services/tmwApi';
 import { offlineDb } from '../services/offlineDb';
 import { storage } from '../services/storage';
 import { mergeFullArticle } from '../utils/articleMerge';
@@ -21,12 +35,53 @@ export interface PodcastContextValue {
   podcastAvailable: boolean;
   activePodcast: PodcastEpisode | null;
   podcastGeneratingForFeed: string | null;
+  podcastError: string | null;
+  dismissPodcastError: () => void;
+  aiSettings: AiSettingsPayload | null;
+  activeAiOverrides: AiRuntimeOverrides | undefined;
+  refreshAiSettings: () => Promise<AiSettingsPayload | null>;
+  saveAiSettings: (patch: AiRuntimeOverrides) => Promise<AiSettingsPayload>;
+  resetAiSettings: () => Promise<AiSettingsPayload>;
   generateFeedPodcast: (feedId: StoryType, forceRegenerate?: boolean) => Promise<void>;
   closePodcastPlayer: () => void;
   checkPodcastStatus: () => Promise<boolean>;
 }
 
 const PodcastContext = createContext<PodcastContextValue | null>(null);
+
+function extractCustomOverridesFromState(
+  providerKind: AiSettingsPayload['providerKind'],
+  stored: AiSettingsState | null,
+): AiRuntimeOverrides | undefined {
+  if (!providerKind || !stored) return undefined;
+  if (providerKind === 'gemini') {
+    const profile = stored.gemini;
+    if (!profile || profile.customizedFields.length === 0) return undefined;
+    const out: AiRuntimeOverrides = {};
+    for (const key of profile.customizedFields) {
+      if (key === 'textModel' || key === 'audioModel' || key === 'voice') {
+        if (profile[key]?.trim()) out[key] = profile[key].trim();
+      }
+    }
+    return Object.keys(out).length > 0 ? out : undefined;
+  }
+
+  const profile = stored.openai;
+  if (!profile || profile.customizedFields.length === 0) return undefined;
+  const out: AiRuntimeOverrides = {};
+  for (const key of profile.customizedFields) {
+    if (
+      key === 'textModel' ||
+      key === 'audioModel' ||
+      key === 'voice' ||
+      key === 'baseUrl' ||
+      key === 'audioFormat'
+    ) {
+      if (profile[key]?.trim()) out[key] = profile[key].trim();
+    }
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
 
 export const PodcastProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { preferences } = usePreferences();
@@ -40,26 +95,78 @@ export const PodcastProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [podcastAvailable, setPodcastAvailable] = useState<boolean>(() => {
     return storage.getPodcastAvailable() ?? false;
   });
+  const [aiSettings, setAiSettings] = useState<AiSettingsPayload | null>(null);
+  const [podcastError, setPodcastError] = useState<string | null>(null);
   const [activePodcast, setActivePodcast] = useState<PodcastEpisode | null>(null);
   const [podcastGeneratingForFeed, setPodcastGeneratingForFeed] = useState<string | null>(null);
   const podcastBusyRef = useRef(false);
 
+  const applyServerPayload = useCallback((payload: AiSettingsPayload) => {
+    setAiSettings(payload);
+    storage.saveAiSettings(payload.stored);
+    setPodcastAvailable(payload.available);
+    storage.savePodcastAvailable(payload.available);
+  }, []);
+
+  const refreshAiSettings = useCallback(async (): Promise<AiSettingsPayload | null> => {
+    try {
+      const serverPayload = await fetchAiSettings();
+      const localStored = storage.getAiSettings();
+      const serverCustomCount = serverPayload.effective?.customizedFields?.length ?? 0;
+      const localPatch =
+        serverCustomCount === 0
+          ? extractCustomOverridesFromState(serverPayload.providerKind, localStored)
+          : undefined;
+
+      if (localPatch) {
+        const synced = await saveAiSettingsApi(localPatch);
+        applyServerPayload(synced);
+        return synced;
+      }
+
+      applyServerPayload(serverPayload);
+      return serverPayload;
+    } catch {
+      return null;
+    }
+  }, [applyServerPayload]);
+
   const checkPodcastStatus = useCallback(async (): Promise<boolean> => {
+    const payload = await refreshAiSettings();
+    if (payload) return payload.available;
     try {
       const available = await fetchPodcastStatus();
       setPodcastAvailable(available);
       storage.savePodcastAvailable(available);
       return available;
     } catch {
-      // Keep last known state on transient network failure or offline
       return storage.getPodcastAvailable() ?? false;
     }
-  }, []);
+  }, [refreshAiSettings]);
+
+  const saveAiSettings = useCallback(
+    async (patch: AiRuntimeOverrides): Promise<AiSettingsPayload> => {
+      const updated = await saveAiSettingsApi(patch);
+      applyServerPayload(updated);
+      setPodcastError(null);
+      return updated;
+    },
+    [applyServerPayload],
+  );
+
+  const resetAiSettings = useCallback(async (): Promise<AiSettingsPayload> => {
+    const updated = await resetAiSettingsApi();
+    applyServerPayload(updated);
+    setPodcastError(null);
+    return updated;
+  }, [applyServerPayload]);
 
   useEffect(() => {
     let active = true;
 
-    const runCheck = async () => {
+    const runSync = async () => {
+      const payload = await refreshAiSettings();
+      if (!active || payload) return;
       try {
         const available = await fetchPodcastStatus();
         if (active) {
@@ -67,25 +174,23 @@ export const PodcastProvider: React.FC<{ children: React.ReactNode }> = ({ child
           storage.savePodcastAvailable(available);
         }
       } catch {
-        // Keep last known available state on network glitch
+        // Keep cached status when offline
       }
     };
 
-    void runCheck();
+    void runSync();
 
-    // Auto-retry after 2.5s and 6s (e.g. server spin-up or network reconnect)
     const timer1 = setTimeout(() => {
-      if (active) void runCheck();
+      if (active) void runSync();
     }, 2500);
 
     const timer2 = setTimeout(() => {
-      if (active) void runCheck();
+      if (active) void runSync();
     }, 6000);
 
-    // Re-verify on user return, tab visibility, or when device reconnects
     const handleRecheck = () => {
       if (document.visibilityState === 'visible' || navigator.onLine) {
-        void runCheck();
+        void runSync();
       }
     };
 
@@ -101,10 +206,20 @@ export const PodcastProvider: React.FC<{ children: React.ReactNode }> = ({ child
       window.removeEventListener('online', handleRecheck);
       window.removeEventListener('focus', handleRecheck);
     };
-  }, []);
+  }, [refreshAiSettings]);
+
+  const activeAiOverrides = useMemo<AiRuntimeOverrides | undefined>(() => {
+    const providerKind = aiSettings?.providerKind ?? null;
+    if (!providerKind) return undefined;
+    return extractCustomOverridesFromState(providerKind, aiSettings?.stored ?? storage.getAiSettings());
+  }, [aiSettings]);
 
   const closePodcastPlayer = useCallback(() => {
     setActivePodcast(null);
+  }, []);
+
+  const dismissPodcastError = useCallback(() => {
+    setPodcastError(null);
   }, []);
 
   const generateFeedPodcast = useCallback(
@@ -114,9 +229,9 @@ export const PodcastProvider: React.FC<{ children: React.ReactNode }> = ({ child
       const bucket = feedsRef.current[feedId];
       const targetStories = (bucket?.stories ?? []).filter((s) => !s.hidden).slice(0, 15);
       if (targetStories.length === 0) {
-        showToast('Nessun articolo disponibile in questa sezione per il podcast.', {
-          variant: 'error',
-        });
+        const msg = 'Nessun articolo disponibile in questa sezione per il podcast.';
+        setPodcastError(msg);
+        showToast(msg, { variant: 'error' });
         return;
       }
 
@@ -124,19 +239,21 @@ export const PodcastProvider: React.FC<{ children: React.ReactNode }> = ({ child
       if (!forceRegenerate) {
         const cached = await offlineDb.getPodcast(feedId);
         if (cached && cached.storiesSignature === storiesSignature && cached.audioBlob) {
+          setPodcastError(null);
           setActivePodcast(cached);
           return;
         }
       }
 
       if (typeof navigator !== 'undefined' && !navigator.onLine) {
-        showToast('Connessione assente: impossibile generare un nuovo podcast AI.', {
-          variant: 'error',
-        });
+        const msg = 'Connessione assente: impossibile generare un nuovo podcast AI.';
+        setPodcastError(msg);
+        showToast(msg, { variant: 'error' });
         return;
       }
 
       podcastBusyRef.current = true;
+      setPodcastError(null);
       setPodcastGeneratingForFeed(feedId);
 
       try {
@@ -194,7 +311,7 @@ export const PodcastProvider: React.FC<{ children: React.ReactNode }> = ({ child
           };
         });
 
-        const generated = await generatePodcastApi(feedLabel, payloadArticles);
+        const generated = await generatePodcastApi(feedLabel, payloadArticles, activeAiOverrides);
         const bytes = Uint8Array.from(atob(generated.audioBase64), (c) => c.charCodeAt(0));
         const audioBlob = new Blob([bytes], { type: generated.mimeType });
 
@@ -210,6 +327,7 @@ export const PodcastProvider: React.FC<{ children: React.ReactNode }> = ({ child
         };
 
         await offlineDb.savePodcast(episode);
+        setPodcastError(null);
         setActivePodcast(episode);
         showToast('Podcast in italiano pronto!', { variant: 'success' });
       } catch (err) {
@@ -217,13 +335,14 @@ export const PodcastProvider: React.FC<{ children: React.ReactNode }> = ({ child
           err instanceof Error && err.message
             ? err.message
             : 'Errore nella creazione del podcast AI.';
+        setPodcastError(msg);
         showToast(msg, { variant: 'error' });
       } finally {
         podcastBusyRef.current = false;
         setPodcastGeneratingForFeed(null);
       }
     },
-    [favIdSetRef, feedsRef, podcastAvailable, refreshOfflineIds, showToast],
+    [activeAiOverrides, favIdSetRef, feedsRef, podcastAvailable, refreshOfflineIds, showToast],
   );
 
   const value = useMemo<PodcastContextValue>(
@@ -231,6 +350,13 @@ export const PodcastProvider: React.FC<{ children: React.ReactNode }> = ({ child
       podcastAvailable,
       activePodcast,
       podcastGeneratingForFeed,
+      podcastError,
+      dismissPodcastError,
+      aiSettings,
+      activeAiOverrides,
+      refreshAiSettings,
+      saveAiSettings,
+      resetAiSettings,
       generateFeedPodcast,
       closePodcastPlayer,
       checkPodcastStatus,
@@ -239,6 +365,13 @@ export const PodcastProvider: React.FC<{ children: React.ReactNode }> = ({ child
       podcastAvailable,
       activePodcast,
       podcastGeneratingForFeed,
+      podcastError,
+      dismissPodcastError,
+      aiSettings,
+      activeAiOverrides,
+      refreshAiSettings,
+      saveAiSettings,
+      resetAiSettings,
       generateFeedPodcast,
       closePodcastPlayer,
       checkPodcastStatus,

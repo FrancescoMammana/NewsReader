@@ -1,10 +1,8 @@
 import React, { useState } from 'react';
-import { Trash2 } from 'lucide-react';
-import { type ProfileSubPage, type Story } from '../types/tmw';
+import { type ProfileSubPage } from '../types/tmw';
 import { useApp } from '../context/AppContext';
 import { SearchView } from './SearchView';
 import { SettingsView } from './SettingsView';
-import { StoryTile } from './StoryTile';
 
 interface ProfileViewProps {
   onOpenExportQr: () => void;
@@ -15,19 +13,12 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   onOpenExportQr,
   onOpenImportModal,
 }) => {
-  const {
-    preferences,
-    accentHex,
-    favItems,
-    removeFav,
-    openItem,
-  } = useApp();
+  const { accentHex } = useApp();
 
   const [subPage, setSubPage] = useState<ProfileSubPage>('settings');
 
   const tabs: Array<{ id: ProfileSubPage; label: string }> = [
     { id: 'search', label: 'Search' },
-    { id: 'fav', label: `Favorite (${favItems.length})` },
     { id: 'settings', label: 'Settings' },
   ];
 
@@ -60,37 +51,6 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
       </div>
 
       {/* Subpage Content */}
-      {subPage === 'fav' && (
-        <div className="flex-1 overflow-y-auto">
-          {favItems.length === 0 ? (
-            <div className="py-20 px-6 text-center text-sm text-neutral-400">
-              Your favorite TuttoMercatoWeb articles will show up here.
-            </div>
-          ) : (
-            favItems.map((item) => (
-              <div key={item.id} className="relative group">
-                <StoryTile
-                  story={item as Story}
-                  onTap={() => openItem({ item })}
-                  showWebPreview={preferences.isComplexStoryTileEnabled}
-                  showMetadata={preferences.isMetadataEnabled}
-                  showFavicon={preferences.isFaviconEnabled}
-                  showUrl={preferences.isUrlEnabled}
-                />
-                <button
-                  type="button"
-                  onClick={() => removeFav(item.id)}
-                  title="Remove from favorites"
-                  className="absolute right-3 bottom-3 p-1.5 rounded bg-white/90 dark:bg-neutral-900/90 border border-neutral-200 dark:border-neutral-700 opacity-0 group-hover:opacity-100 transition-opacity text-red-500"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            ))
-          )}
-        </div>
-      )}
-
       {subPage === 'search' && <SearchView />}
 
       {subPage === 'settings' && (

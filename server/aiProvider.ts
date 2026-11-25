@@ -1,23 +1,23 @@
 import { GoogleGenAI, ThinkingLevel, type Schema } from '@google/genai';
 import OpenAI from 'openai';
+import {
+  type ActiveProviderKind,
+  type AiRuntimeOverrides,
+  type EffectiveAiConfig,
+  resolveEffectiveAiConfig,
+  validateTtsParameters,
+} from './aiSettings.ts';
 
-export type ActiveProviderKind = 'gemini' | 'openai';
-
-export interface AiRuntimeConfig {
-  kind: ActiveProviderKind;
-  textModel: string;
-  audioModel: string;
-  geminiApiKey: string;
-  openaiApiKey: string;
-  openaiBaseUrl: string;
-}
+export type { ActiveProviderKind, AiRuntimeOverrides, EffectiveAiConfig };
 
 export class AiProviderError extends Error {
   readonly statusCode: number;
+  readonly phase: string;
 
-  constructor(statusCode: number, message: string) {
+  constructor(statusCode: number, message: string, phase = 'richiesta') {
     super(message);
     this.statusCode = statusCode;
+    this.phase = phase;
   }
 }
 
@@ -28,12 +28,15 @@ export interface GenerateTextParams {
   temperature?: number;
   jsonSchema?: Schema;
   thinkingMinimalForGemini3?: boolean;
+  overrides?: AiRuntimeOverrides;
 }
 
 export interface SynthesizedSpeechResult {
   audioBase64: string;
   mimeType: string;
 }
+
+const UPSTREAM_TIMEOUT_MS = 75000;
 
 let cachedGeminiKey = '';
 let cachedGeminiClient: GoogleGenAI | null = null;
@@ -43,45 +46,24 @@ let cachedOpenAiClient: OpenAI | null = null;
 
 export function resolveAiConfigFromEnv(
   env: Record<string, string | undefined> = process.env,
-): AiRuntimeConfig | null {
-  const geminiApiKey = env.GEMINI_API_KEY?.trim() || '';
-  const textModel = env.TEXT_MODEL?.trim() || '';
-  const audioModel = env.AUDIO_MODEL?.trim() || '';
-
-  if (geminiApiKey) {
-    return {
-      kind: 'gemini',
-      textModel,
-      audioModel,
-      geminiApiKey,
-      openaiApiKey: '',
-      openaiBaseUrl: '',
-    };
-  }
-
-  const openaiApiKey = env.OPENAI_API_KEY?.trim() || '';
-  const openaiBaseUrl = env.OPENAI_BASE_URL?.trim() || '';
-  if (openaiApiKey && openaiBaseUrl) {
-    return {
-      kind: 'openai',
-      textModel,
-      audioModel,
-      geminiApiKey: '',
-      openaiApiKey,
-      openaiBaseUrl,
-    };
-  }
-
-  return null;
+  overrides?: AiRuntimeOverrides,
+): EffectiveAiConfig | null {
+  return resolveEffectiveAiConfig(env, undefined, overrides);
 }
 
-export function isTextAiAvailable(env: Record<string, string | undefined> = process.env): boolean {
-  const cfg = resolveAiConfigFromEnv(env);
+export function isTextAiAvailable(
+  env: Record<string, string | undefined> = process.env,
+  overrides?: AiRuntimeOverrides,
+): boolean {
+  const cfg = resolveEffectiveAiConfig(env, undefined, overrides);
   return Boolean(cfg && cfg.textModel);
 }
 
-export function isPodcastAvailable(env: Record<string, string | undefined> = process.env): boolean {
-  const cfg = resolveAiConfigFromEnv(env);
+export function isPodcastAvailable(
+  env: Record<string, string | undefined> = process.env,
+  overrides?: AiRuntimeOverrides,
+): boolean {
+  const cfg = resolveEffectiveAiConfig(env, undefined, overrides);
   return Boolean(cfg && cfg.textModel && cfg.audioModel);
 }
 
@@ -89,19 +71,18 @@ export function getMissingConfigMessage(
   scope: 'text' | 'podcast',
   env: Record<string, string | undefined> = process.env,
 ): string {
-  const cfg = resolveAiConfigFromEnv(env);
+  const cfg = resolveEffectiveAiConfig(env);
   if (!cfg) {
-    const hasPartialOpenAi = Boolean(env.OPENAI_API_KEY?.trim() || env.OPENAI_BASE_URL?.trim());
-    if (hasPartialOpenAi) {
-      return 'Configurazione OpenAI-compatible incompleta: imposta sia OPENAI_API_KEY sia OPENAI_BASE_URL (oppure imposta GEMINI_API_KEY).';
-    }
-    return 'Servizio AI non attivo: imposta GEMINI_API_KEY oppure OPENAI_API_KEY e OPENAI_BASE_URL sul server.';
+    return 'Servizio AI non attivo: imposta GEMINI_API_KEY oppure OPENAI_API_KEY nelle variabili ambiente del server.';
   }
   if (!cfg.textModel) {
-    return 'Configurazione AI incompleta: imposta TEXT_MODEL nelle variabili ambiente del server.';
+    return 'Configurazione AI incompleta: imposta il modello testo nelle Impostazioni o via TEXT_MODEL.';
   }
   if (scope === 'podcast' && !cfg.audioModel) {
-    return 'Servizio Podcast AI incompleto: imposta AUDIO_MODEL nelle variabili ambiente del server.';
+    return 'Servizio Podcast AI incompleto: imposta il modello audio nelle Impostazioni o via AUDIO_MODEL.';
+  }
+  if (cfg.kind === 'openai' && !cfg.baseUrl) {
+    return 'Configurazione OpenAI-compatible incompleta: imposta l\'URL provider nelle Impostazioni o via OPENAI_BASE_URL.';
   }
   return 'Configurazione AI non valida.';
 }
@@ -109,10 +90,16 @@ export function getMissingConfigMessage(
 function getRequiredConfig(
   scope: 'text' | 'podcast',
   env: Record<string, string | undefined> = process.env,
-): AiRuntimeConfig {
-  const cfg = resolveAiConfigFromEnv(env);
-  if (!cfg || !cfg.textModel || (scope === 'podcast' && !cfg.audioModel)) {
-    throw new AiProviderError(503, getMissingConfigMessage(scope, env));
+  overrides?: AiRuntimeOverrides,
+): EffectiveAiConfig {
+  const cfg = resolveEffectiveAiConfig(env, undefined, overrides);
+  if (
+    !cfg ||
+    !cfg.textModel ||
+    (scope === 'podcast' && !cfg.audioModel) ||
+    (cfg.kind === 'openai' && !cfg.baseUrl)
+  ) {
+    throw new AiProviderError(503, getMissingConfigMessage(scope, env), 'configurazione');
   }
   return cfg;
 }
@@ -142,9 +129,36 @@ function getOpenAiClient(apiKey: string, baseURL: string): OpenAI {
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-function isNonRetriableError(error: unknown): boolean {
+export function isTimeoutOrAbortError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+  const err = error as { name?: string; code?: string; status?: number; message?: string };
+  const name = (err.name || '').toLowerCase();
+  const msg = (err.message || '').toLowerCase();
+  return (
+    name === 'aborterror' ||
+    name === 'timeouterror' ||
+    err.code === 'ETIMEDOUT' ||
+    err.code === 'ABORT_ERR' ||
+    err.status === 408 ||
+    err.status === 504 ||
+    msg.includes('timed out') ||
+    msg.includes('timeout') ||
+    msg.includes('aborted')
+  );
+}
+
+export function isNonRetriableError(error: unknown): boolean {
+  if (isTimeoutOrAbortError(error)) return true;
   if (error instanceof AiProviderError) {
-    return error.statusCode === 400 || error.statusCode === 401 || error.statusCode === 403;
+    return (
+      error.statusCode === 400 ||
+      error.statusCode === 401 ||
+      error.statusCode === 403 ||
+      error.statusCode === 404 ||
+      error.statusCode === 408 ||
+      error.statusCode === 422 ||
+      error.statusCode === 504
+    );
   }
   const err = error as { status?: number; message?: string };
   const status = typeof err?.status === 'number' ? err.status : 0;
@@ -154,6 +168,9 @@ function isNonRetriableError(error: unknown): boolean {
     status === 401 ||
     status === 403 ||
     status === 404 ||
+    status === 408 ||
+    status === 422 ||
+    status === 504 ||
     message.includes('API_KEY_INVALID') ||
     message.includes('PERMISSION_DENIED')
   );
@@ -164,14 +181,14 @@ async function withSingleRetry<T>(stage: string, fn: () => Promise<T>): Promise<
     return await fn();
   } catch (error) {
     if (isNonRetriableError(error)) throw error;
-    console.warn(`[ai/${stage}] primo tentativo non riuscito, riprovo tra 1s...`);
+    console.warn(`[ai/${stage}] tentativo transitorio non riuscito, riprovo una volta tra 1s...`);
     await sleep(1000);
     return await fn();
   }
 }
 
 export async function generateAiText(params: GenerateTextParams): Promise<string> {
-  const cfg = getRequiredConfig('text');
+  const cfg = getRequiredConfig('text', process.env, params.overrides);
 
   return withSingleRetry('text', async () => {
     if (cfg.kind === 'gemini') {
@@ -181,6 +198,7 @@ export async function generateAiText(params: GenerateTextParams): Promise<string
 
       const config: Record<string, unknown> = {
         systemInstruction: params.systemInstruction,
+        abortSignal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
       };
       if (params.maxOutputTokens !== undefined) {
         config.maxOutputTokens = params.maxOutputTokens;
@@ -204,20 +222,23 @@ export async function generateAiText(params: GenerateTextParams): Promise<string
       return response.text?.trim() || '';
     }
 
-    const client = getOpenAiClient(cfg.openaiApiKey, cfg.openaiBaseUrl);
+    const client = getOpenAiClient(cfg.openaiApiKey, cfg.baseUrl);
     const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
       { role: 'system', content: params.systemInstruction },
       { role: 'user', content: params.prompt },
     ];
 
     const runChat = (withJsonFormat: boolean) =>
-      client.chat.completions.create({
-        model: cfg.textModel,
-        messages,
-        ...(params.maxOutputTokens !== undefined ? { max_tokens: params.maxOutputTokens } : {}),
-        ...(params.temperature !== undefined ? { temperature: params.temperature } : {}),
-        ...(withJsonFormat ? { response_format: { type: 'json_object' } } : {}),
-      });
+      client.chat.completions.create(
+        {
+          model: cfg.textModel,
+          messages,
+          ...(params.maxOutputTokens !== undefined ? { max_tokens: params.maxOutputTokens } : {}),
+          ...(params.temperature !== undefined ? { temperature: params.temperature } : {}),
+          ...(withJsonFormat ? { response_format: { type: 'json_object' } } : {}),
+        },
+        { signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS) },
+      );
 
     let completion: OpenAI.Chat.Completions.ChatCompletion;
     if (params.jsonSchema) {
@@ -275,6 +296,52 @@ function detectMagicAudioMime(buffer: Buffer): string {
   return '';
 }
 
+function parsePcmMimeMetadata(rawMimeType?: string): { sampleRate: number; channels: number } {
+  let sampleRate = 24000;
+  let channels = 1;
+  if (!rawMimeType) return { sampleRate, channels };
+  const rateMatch = rawMimeType.match(/(?:rate|samplerate)\s*=\s*(\d{4,6})/i);
+  if (rateMatch) {
+    const parsed = Number(rateMatch[1]);
+    if (Number.isFinite(parsed) && parsed >= 8000 && parsed <= 192000) {
+      sampleRate = parsed;
+    }
+  }
+  const chMatch = rawMimeType.match(/channels\s*=\s*(\d)/i);
+  if (chMatch) {
+    const parsedCh = Number(chMatch[1]);
+    if (parsedCh === 1 || parsedCh === 2) {
+      channels = parsedCh;
+    }
+  }
+  return { sampleRate, channels };
+}
+
+export function wrapPcm16ToWav(pcmBuffer: Buffer, sampleRate = 24000, channels = 1): Buffer {
+  const bitsPerSample = 16;
+  const alignedLen = pcmBuffer.length - (pcmBuffer.length % 2);
+  const pcmSlice = alignedLen === pcmBuffer.length ? pcmBuffer : pcmBuffer.subarray(0, alignedLen);
+  const byteRate = sampleRate * channels * (bitsPerSample / 8);
+  const blockAlign = channels * (bitsPerSample / 8);
+  const header = Buffer.alloc(44);
+
+  header.write('RIFF', 0, 'ascii');
+  header.writeUInt32LE(36 + pcmSlice.length, 4);
+  header.write('WAVE', 8, 'ascii');
+  header.write('fmt ', 12, 'ascii');
+  header.writeUInt32LE(16, 16);
+  header.writeUInt16LE(1, 20);
+  header.writeUInt16LE(channels, 22);
+  header.writeUInt32LE(sampleRate, 24);
+  header.writeUInt32LE(byteRate, 28);
+  header.writeUInt16LE(blockAlign, 32);
+  header.writeUInt16LE(bitsPerSample, 34);
+  header.write('data', 36, 'ascii');
+  header.writeUInt32LE(pcmSlice.length, 40);
+
+  return Buffer.concat([header, pcmSlice]);
+}
+
 const MIME_ALIASES: Record<string, string> = {
   'audio/mp3': 'audio/mpeg',
   'audio/x-mpeg': 'audio/mpeg',
@@ -284,60 +351,92 @@ const MIME_ALIASES: Record<string, string> = {
   'audio/m4a': 'audio/mp4',
 };
 
-export function normalizeAndValidateAudio(buffer: Buffer, rawMimeType?: string): string {
+export function normalizeAndConvertAudio(
+  buffer: Buffer,
+  rawMimeType?: string,
+  requestedFormat?: string,
+): { buffer: Buffer; mimeType: string } {
   if (buffer.length === 0) {
-    throw new AiProviderError(502, 'Il modello audio ha restituito un file vuoto.');
+    throw new AiProviderError(502, 'Il modello audio ha restituito un file vuoto.', 'validazione audio');
   }
 
   const baseMime = (rawMimeType || '').split(';')[0]?.trim().toLowerCase() || '';
-  if (
-    baseMime === 'audio/l16' ||
-    baseMime === 'audio/pcm' ||
-    baseMime === 'audio/raw' ||
-    /^audio\/l\d+$/.test(baseMime)
-  ) {
+  if (baseMime.startsWith('text/') || baseMime === 'application/json' || baseMime === 'application/xml') {
     throw new AiProviderError(
       502,
-      `Il provider TTS ha restituito audio PCM grezzo (${rawMimeType}), non riproducibile direttamente dal browser senza conversione.`,
+      `Il provider TTS ha restituito una risposta non audio (${baseMime}).`,
+      'validazione audio',
     );
-  }
-
-  if (baseMime.startsWith('text/') || baseMime === 'application/json' || baseMime === 'application/xml') {
-    throw new AiProviderError(502, `Il provider TTS ha restituito una risposta non audio (${baseMime}).`);
   }
 
   const headText = buffer.subarray(0, 64).toString('utf8').trimStart();
   if (headText.startsWith('{') || headText.startsWith('[') || headText.startsWith('<')) {
-    throw new AiProviderError(502, 'Il provider TTS ha restituito dati JSON/HTML anziché audio binario.');
+    throw new AiProviderError(
+      502,
+      'Il provider TTS ha restituito dati JSON/HTML anziché audio binario.',
+      'validazione audio',
+    );
+  }
+
+  const isDeclaredPcm =
+    baseMime === 'audio/l16' ||
+    baseMime === 'audio/pcm' ||
+    baseMime === 'audio/raw' ||
+    /^audio\/l\d+$/.test(baseMime);
+
+  const magicMime = detectMagicAudioMime(buffer);
+  const reqFmt = (requestedFormat || '').trim().toLowerCase();
+
+  if (isDeclaredPcm || (reqFmt === 'pcm' && !magicMime)) {
+    if (buffer.length < 2) {
+      throw new AiProviderError(502, 'Flusso PCM audio incompleto o troppo corto.', 'conversione WAV');
+    }
+    const { sampleRate, channels } = parsePcmMimeMetadata(rawMimeType);
+    return {
+      buffer: wrapPcm16ToWav(buffer, sampleRate, channels),
+      mimeType: 'audio/wav',
+    };
   }
 
   const normalizedDeclared = MIME_ALIASES[baseMime] || baseMime;
-  const magicMime = detectMagicAudioMime(buffer);
 
   if (normalizedDeclared === 'audio/wav' && magicMime !== 'audio/wav') {
-    if (magicMime) return magicMime;
+    if (magicMime) return { buffer, mimeType: magicMime };
     throw new AiProviderError(
       502,
       'Il provider ha dichiarato audio/wav ma i byte ricevuti non corrispondono a un contenitore WAV valido.',
+      'validazione audio',
     );
   }
 
   if (normalizedDeclared.startsWith('audio/')) {
-    return normalizedDeclared;
+    return { buffer, mimeType: normalizedDeclared };
   }
 
   if (magicMime) {
-    return magicMime;
+    return { buffer, mimeType: magicMime };
   }
 
   throw new AiProviderError(
     502,
     `Formato audio restituito dal provider non riconosciuto o non supportato (${rawMimeType || 'sconosciuto'}).`,
+    'validazione audio',
   );
 }
 
-export async function synthesizeAiSpeech(text: string): Promise<SynthesizedSpeechResult> {
-  const cfg = getRequiredConfig('podcast');
+export function normalizeAndValidateAudio(buffer: Buffer, rawMimeType?: string): string {
+  return normalizeAndConvertAudio(buffer, rawMimeType).mimeType;
+}
+
+export async function synthesizeAiSpeech(
+  text: string,
+  overrides?: AiRuntimeOverrides,
+): Promise<SynthesizedSpeechResult> {
+  const cfg = getRequiredConfig('podcast', process.env, overrides);
+  const validationError = validateTtsParameters(cfg.kind, cfg.audioModel, cfg.voice, cfg.audioFormat);
+  if (validationError) {
+    throw new AiProviderError(400, validationError, 'validazione parametri TTS');
+  }
 
   return withSingleRetry('tts', async () => {
     if (cfg.kind === 'gemini') {
@@ -358,9 +457,10 @@ export async function synthesizeAiSpeech(text: string): Promise<SynthesizedSpeec
           },
         ],
         config: {
+          abortSignal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
           responseModalities: ['AUDIO'],
           speechConfig: {
-            voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Kore' } },
+            voiceConfig: { prebuiltVoiceConfig: { voiceName: cfg.voice } },
           },
         },
       });
@@ -368,36 +468,57 @@ export async function synthesizeAiSpeech(text: string): Promise<SynthesizedSpeec
       const audioPart = response.candidates?.[0]?.content?.parts?.find((part) => part.inlineData?.data);
       const audioBase64 = audioPart?.inlineData?.data;
       if (!audioBase64) {
-        throw new AiProviderError(502, 'Il modello audio non ha restituito tracce vocali.');
+        throw new AiProviderError(502, 'Il modello audio non ha restituito tracce vocali.', 'ricezione audio');
       }
 
-      const buffer = Buffer.from(audioBase64, 'base64');
-      const mimeType = normalizeAndValidateAudio(buffer, audioPart?.inlineData?.mimeType);
-      return { audioBase64, mimeType };
+      const rawBuffer = Buffer.from(audioBase64, 'base64');
+      const normalized = normalizeAndConvertAudio(rawBuffer, audioPart?.inlineData?.mimeType, 'wav');
+      return {
+        audioBase64: normalized.buffer.toString('base64'),
+        mimeType: normalized.mimeType,
+      };
     }
 
-    const client = getOpenAiClient(cfg.openaiApiKey, cfg.openaiBaseUrl);
-    const speechResponse = await client.audio.speech.create({
-      model: cfg.audioModel,
-      input: text,
-      voice: 'alloy',
-      response_format: 'mp3',
-    });
+    const client = getOpenAiClient(cfg.openaiApiKey, cfg.baseUrl);
+    type SpeechParams = OpenAI.Audio.Speech.SpeechCreateParams;
+
+    let speechResponse: Response;
+    try {
+      speechResponse = await client.audio.speech.create(
+        {
+          model: cfg.audioModel,
+          input: text,
+          voice: cfg.voice as SpeechParams['voice'],
+          response_format: cfg.audioFormat as SpeechParams['response_format'],
+        },
+        { signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS) },
+      );
+    } catch (err) {
+      if (isTimeoutOrAbortError(err)) {
+        throw new AiProviderError(
+          504,
+          'Timeout durante la chiamata al servizio TTS del provider.',
+          'timeout',
+        );
+      }
+      throw err;
+    }
 
     if (!speechResponse.ok) {
       const errBody = (await speechResponse.text().catch(() => '')).slice(0, 180).trim();
       throw new AiProviderError(
         speechResponse.status || 502,
         errBody || `Errore dal servizio TTS (${speechResponse.status})`,
+        'risposta HTTP TTS',
       );
     }
 
     const contentType = speechResponse.headers.get('content-type') || '';
-    const buffer = Buffer.from(await speechResponse.arrayBuffer());
-    const mimeType = normalizeAndValidateAudio(buffer, contentType);
+    const rawBuffer = Buffer.from(await speechResponse.arrayBuffer());
+    const normalized = normalizeAndConvertAudio(rawBuffer, contentType, cfg.audioFormat);
     return {
-      audioBase64: buffer.toString('base64'),
-      mimeType,
+      audioBase64: normalized.buffer.toString('base64'),
+      mimeType: normalized.mimeType,
     };
   });
 }
@@ -407,10 +528,18 @@ export function toAiHttpError(
   scope: 'podcast' | 'qa',
 ): { status: number; message: string } {
   if (error instanceof AiProviderError) {
-    return { status: error.statusCode, message: error.message };
+    const prefix = error.phase && error.phase !== 'richiesta' ? `[${error.phase}] ` : '';
+    return { status: error.statusCode, message: `${prefix}${error.message}` };
   }
 
-  const cfg = resolveAiConfigFromEnv();
+  if (isTimeoutOrAbortError(error)) {
+    return {
+      status: 504,
+      message: '[timeout] Il provider AI non ha risposto entro il tempo massimo (75s). Riprova o scegli un modello più rapido.',
+    };
+  }
+
+  const cfg = resolveEffectiveAiConfig();
   const isGemini = cfg?.kind !== 'openai';
   const err = error as { status?: number; message?: string; error?: { message?: string } };
   const status = typeof err?.status === 'number' ? err.status : 502;
@@ -434,29 +563,32 @@ export function toAiHttpError(
   const code =
     status === 429 || raw.includes('RESOURCE_EXHAUSTED')
       ? 429
-      : status === 401 || status === 403 || raw.includes('API_KEY_INVALID') || raw.includes('PERMISSION_DENIED')
-        ? 403
-        : status === 503 || raw.includes('UNAVAILABLE') || raw.includes('high demand')
-          ? 503
-          : status === 400
-            ? 400
-            : 502;
-
-  const authMsg = isGemini
-    ? 'Chiave GEMINI_API_KEY non valida o bloccata per chiamate da server esterno (403).'
-    : 'Credenziali OpenAI-compatible non valide o accesso negato dal provider (403).';
+      : status === 401
+        ? isGemini
+          ? 403
+          : 401
+        : status === 403 || raw.includes('API_KEY_INVALID') || raw.includes('PERMISSION_DENIED')
+          ? 403
+          : status === 503 || raw.includes('UNAVAILABLE') || raw.includes('high demand')
+            ? 503
+            : status === 400 || status === 422
+              ? 400
+              : 502;
 
   const messages: Record<number, string> = {
-    400: 'Richiesta AI non valida (400). Controlla il modello configurato e i dati inviati.',
-    403: authMsg,
-    429: 'Quota AI temporaneamente esaurita (429): attendi 1 minuto e riprova.',
+    400: 'Richiesta AI non valida (400). Verifica modello, voce o formato audio configurati',
+    401: 'Chiave OPENAI_API_KEY non valida o non autorizzata dal provider (401)',
+    403: isGemini
+      ? 'Chiave GEMINI_API_KEY non valida o bloccata per chiamate da server esterno (403).'
+      : 'Accesso negato dal provider OpenAI-compatible (403)',
+    429: 'Quota AI temporaneamente esaurita (429): attendi 1 minuto e riprova',
     502:
       scope === 'podcast'
-        ? 'Errore nella generazione del podcast AI.'
-        : 'Errore durante la generazione della risposta AI.',
-    503: 'Servizio AI momentaneamente non disponibile o sovraccarico (503). Riprova tra poco.',
+        ? 'Errore nella generazione del podcast AI'
+        : 'Errore durante la generazione della risposta AI',
+    503: 'Servizio AI momentaneamente non disponibile o sovraccarico (503). Riprova tra poco',
   };
 
-  const extra = detail && code !== 403 ? `: ${detail}` : '';
+  const extra = detail && !(isGemini && code === 403) ? `: ${detail}` : '';
   return { status: code, message: `${messages[code]}${extra}` };
 }
