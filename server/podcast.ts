@@ -122,22 +122,30 @@ const SCRIPT_SYSTEM_INSTRUCTION =
   'Regole rigorose per il testo parlato: SOLO prosa naturale pronta per essere letta ad alta voce da uno speaker; NON includere mai URL, domini web, simboli markdown (*, **, #, >), elenchi puntati, parentesi tecniche o emoji. Scrivi eventuali sigle inglesi o nomi stranieri in forma chiara e scorrevole per una lettura italiana. ' +
   'Rispondi ESCLUSIVAMENTE con un oggetto JSON valido avente questa struttura esatta: {"episodeTitle":"string","intro":"string","segments":[{"storyId":123,"headline":"string","spokenText":"string"}],"outro":"string"}.';
 
-function parseScriptJson(raw: string): GeneratedScriptPayload {
-  const cleaned = raw
-    .trim()
-    .replace(/^```(?:json)?\s*/i, '')
-    .replace(/\s*```$/i, '')
-    .trim();
+export function parseScriptJson(raw: string): GeneratedScriptPayload {
+  const withoutThink = raw.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+  const fencedMatch = withoutThink.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+  const candidate = (fencedMatch ? fencedMatch[1] : withoutThink).trim();
 
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(cleaned);
-  } catch {
-    throw new AiProviderError(502, 'Risposta non valida dal modello di scrittura del copione.');
+  const tryParse = (text: string): unknown => {
+    try {
+      return JSON.parse(text);
+    } catch {
+      return null;
+    }
+  };
+
+  let parsed = tryParse(candidate);
+  if (!parsed) {
+    const firstBrace = candidate.indexOf('{');
+    const lastBrace = candidate.lastIndexOf('}');
+    if (firstBrace >= 0 && lastBrace > firstBrace) {
+      parsed = tryParse(candidate.slice(firstBrace, lastBrace + 1));
+    }
   }
 
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    throw new AiProviderError(502, 'Formato JSON del copione non valido.');
+    throw new AiProviderError(502, 'Risposta non valida dal modello di scrittura del copione.');
   }
   const obj = parsed as GeneratedScriptPayload;
   if (!Array.isArray(obj.segments) || obj.segments.length === 0) {
@@ -163,13 +171,42 @@ async function generateScript(
   const rawText = await generateAiText({
     systemInstruction: SCRIPT_SYSTEM_INSTRUCTION,
     prompt,
-    maxOutputTokens: 2000,
     jsonSchema: scriptResponseSchema,
     thinkingMinimalForGemini3: true,
     overrides,
   });
 
-  const parsed = parseScriptJson(rawText);
+  if (!rawText) {
+    throw new AiProviderError(502, 'Il modello testo non ha restituito alcun copione.');
+  }
+
+  let parsed: GeneratedScriptPayload;
+  try {
+    parsed = parseScriptJson(rawText);
+  } catch (err) {
+    const plain = cleanText(
+      rawText
+        .replace(/<think>[\s\S]*?<\/think>/gi, '')
+        .replace(/```[\s\S]*?```/g, ''),
+    );
+    const looksLikeTruncatedJson = plain.startsWith('{') || plain.startsWith('[');
+    if (!looksLikeTruncatedJson && plain.length >= 120) {
+      const firstArticle = articles[0];
+      return {
+        episodeTitle: `Rassegna ${feedLabel}`,
+        fullScript: plain,
+        segments: [
+          {
+            storyId: firstArticle.id,
+            headline: firstArticle.title,
+          },
+        ],
+      };
+    }
+    console.warn('[podcast/script] risposta non JSON valida:', rawText.slice(0, 240));
+    throw err;
+  }
+
   const validIds = new Set(articles.map((article) => article.id));
   const rawSegments = parsed.segments as Array<{
     storyId?: unknown;
@@ -181,11 +218,14 @@ async function generateScript(
     .filter((segment) => typeof segment?.spokenText === 'string' && segment.spokenText.trim())
     .map((segment, index) => {
       const fallback = articles[Math.min(index, articles.length - 1)];
+      const numericId =
+        typeof segment.storyId === 'number'
+          ? segment.storyId
+          : typeof segment.storyId === 'string'
+            ? Number(segment.storyId)
+            : NaN;
       return {
-        storyId:
-          typeof segment.storyId === 'number' && validIds.has(segment.storyId)
-            ? segment.storyId
-            : fallback.id,
+        storyId: Number.isFinite(numericId) && validIds.has(numericId) ? numericId : fallback.id,
         headline: cleanText(
           typeof segment.headline === 'string' && segment.headline.trim()
             ? segment.headline

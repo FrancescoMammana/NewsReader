@@ -232,40 +232,62 @@ export async function generateAiText(params: GenerateTextParams): Promise<string
         { role: 'system', content: params.systemInstruction },
         { role: 'user', content: params.prompt },
       ];
+      const isOpenRouter = cfg.baseUrl.toLowerCase().includes('openrouter.ai');
+      const preferNoReasoning = Boolean(params.thinkingMinimalForGemini3 && isOpenRouter);
 
-      const runChat = (withJsonFormat: boolean) =>
-        client.chat.completions.create(
-          {
-            model: cfg.textModel,
-            messages,
-            ...(params.maxOutputTokens !== undefined ? { max_tokens: params.maxOutputTokens } : {}),
-            ...(params.temperature !== undefined ? { temperature: params.temperature } : {}),
-            ...(withJsonFormat ? { response_format: { type: 'json_object' } } : {}),
-          },
+      const runChat = (withJsonFormat: boolean, disableReasoning: boolean) => {
+        const body: Record<string, unknown> = {
+          model: cfg.textModel,
+          messages,
+        };
+        if (params.maxOutputTokens !== undefined) {
+          body.max_tokens = params.maxOutputTokens;
+        }
+        if (params.temperature !== undefined) {
+          body.temperature = params.temperature;
+        }
+        if (withJsonFormat) {
+          body.response_format = { type: 'json_object' };
+        }
+        if (disableReasoning) {
+          body.reasoning = { enabled: false, exclude: true };
+        }
+        return client.chat.completions.create(
+          body as unknown as OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming,
           { signal: AbortSignal.timeout(TEXT_TIMEOUT_MS) },
         );
+      };
 
-      let completion: OpenAI.Chat.Completions.ChatCompletion;
-      if (params.jsonSchema) {
+      const executeWithFallback = async (
+        withJson: boolean,
+        disableReasoning: boolean,
+      ): Promise<OpenAI.Chat.Completions.ChatCompletion> => {
         try {
-          completion = await runChat(true);
+          return await runChat(withJson, disableReasoning);
         } catch (err) {
-          const apiErr = err as { status?: number; message?: string };
-          const msg = (apiErr?.message || '').toLowerCase();
-          if (
-            apiErr?.status === 400 &&
-            (msg.includes('response_format') || msg.includes('json_object') || msg.includes('json mode'))
-          ) {
-            completion = await runChat(false);
-          } else {
-            throw err;
+          const apiErr = err as { status?: number };
+          if (apiErr?.status === 400 || apiErr?.status === 422) {
+            if (disableReasoning) {
+              return executeWithFallback(withJson, false);
+            }
+            if (withJson) {
+              return executeWithFallback(false, false);
+            }
           }
+          throw err;
         }
-      } else {
-        completion = await runChat(false);
+      };
+
+      let completion = await executeWithFallback(Boolean(params.jsonSchema), preferNoReasoning);
+      let content = completion.choices?.[0]?.message?.content?.trim() || '';
+
+      // Alcuni provider/modelli restituiscono content vuoto con response_format=json_object o reasoning disabilitato
+      if (!content && (params.jsonSchema || preferNoReasoning)) {
+        completion = await executeWithFallback(false, false);
+        content = completion.choices?.[0]?.message?.content?.trim() || '';
       }
 
-      return completion.choices?.[0]?.message?.content?.trim() || '';
+      return content;
     } catch (err) {
       if (isTimeoutOrAbortError(err)) {
         throw new AiProviderError(

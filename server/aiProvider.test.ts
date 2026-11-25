@@ -28,6 +28,7 @@ import {
   validateTtsParameters,
 } from './aiSettings.ts';
 import { getAudioExtensionFromMime } from '../src/utils/formatting.ts';
+import { parseScriptJson } from './podcast.ts';
 
 function withTempSettingsFile(run: (filePath: string) => void | Promise<void>): Promise<void> {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tmw-ai-settings-'));
@@ -278,4 +279,21 @@ test('mergeAudioChunks concatena WAV PCM16 senza perdita di header', () => {
   assert.equal(merged.buffer.subarray(0, 4).toString('ascii'), 'RIFF');
   assert.equal(merged.buffer.readUInt32LE(40), pcm1.length + pcm2.length);
   assert.deepEqual(merged.buffer.subarray(44), Buffer.concat([pcm1, pcm2]));
+});
+
+test('parseScriptJson estrae JSON valido anche con blocchi <think> e markdown intorno', () => {
+  const raw = `<think>ragionamento lungo sul copione</think>
+Ecco il copione richiesto:
+\`\`\`json
+{"episodeTitle":"Rassegna Serie A","intro":"Buongiorno.","segments":[{"storyId":"101","headline":"Roma","spokenText":"La Roma pareggia."}],"outro":"A presto."}
+\`\`\`
+Grazie.`;
+
+  const parsed = parseScriptJson(raw);
+  assert.equal(parsed.episodeTitle, 'Rassegna Serie A');
+  assert.ok(Array.isArray(parsed.segments));
+  assert.equal(parsed.segments.length, 1);
+
+  assert.throws(() => parseScriptJson(''), /Risposta non valida/);
+  assert.throws(() => parseScriptJson('{"episodeTitle":"solo titolo"}'), /segmenti validi/);
 });
