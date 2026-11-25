@@ -54,34 +54,53 @@ const PodcastContext = createContext<PodcastContextValue | null>(null);
 function extractCustomOverridesFromState(
   providerKind: AiSettingsPayload['providerKind'],
   stored: AiSettingsState | null,
+  ttsProfiles?: AiSettingsPayload['catalog']['ttsProfiles'],
+  fallbackAudioModel?: string,
 ): AiRuntimeOverrides | undefined {
   if (!providerKind || !stored) return undefined;
+  const out: AiRuntimeOverrides = {};
+
   if (providerKind === 'gemini') {
     const profile = stored.gemini;
     if (!profile || profile.customizedFields.length === 0) return undefined;
-    const out: AiRuntimeOverrides = {};
     for (const key of profile.customizedFields) {
       if (key === 'textModel' || key === 'audioModel' || key === 'voice') {
         if (profile[key]?.trim()) out[key] = profile[key].trim();
       }
     }
-    return Object.keys(out).length > 0 ? out : undefined;
-  }
-
-  const profile = stored.openai;
-  if (!profile || profile.customizedFields.length === 0) return undefined;
-  const out: AiRuntimeOverrides = {};
-  for (const key of profile.customizedFields) {
-    if (
-      key === 'textModel' ||
-      key === 'audioModel' ||
-      key === 'voice' ||
-      key === 'baseUrl' ||
-      key === 'audioFormat'
-    ) {
-      if (profile[key]?.trim()) out[key] = profile[key].trim();
+  } else {
+    const profile = stored.openai;
+    if (!profile || profile.customizedFields.length === 0) return undefined;
+    for (const key of profile.customizedFields) {
+      if (
+        key === 'textModel' ||
+        key === 'audioModel' ||
+        key === 'voice' ||
+        key === 'baseUrl' ||
+        key === 'audioFormat'
+      ) {
+        if (profile[key]?.trim()) out[key] = profile[key].trim();
+      }
     }
   }
+
+  const targetModel = (out.audioModel || fallbackAudioModel || '').trim().toLowerCase();
+  if (targetModel && ttsProfiles && ttsProfiles.length > 0) {
+    const matched = ttsProfiles.find((p) => p.id.toLowerCase() === targetModel);
+    if (matched) {
+      if (out.voice && matched.voices.length > 0 && !matched.voices.includes(out.voice)) {
+        delete out.voice;
+      }
+      if (
+        out.audioFormat &&
+        matched.formats.length > 0 &&
+        !matched.formats.includes(out.audioFormat.toLowerCase())
+      ) {
+        delete out.audioFormat;
+      }
+    }
+  }
+
   return Object.keys(out).length > 0 ? out : undefined;
 }
 
@@ -120,7 +139,12 @@ export const PodcastProvider: React.FC<{ children: React.ReactNode }> = ({ child
       const serverCustomCount = serverPayload.effective?.customizedFields?.length ?? 0;
       const localPatch =
         serverCustomCount === 0
-          ? extractCustomOverridesFromState(serverPayload.providerKind, localStored)
+          ? extractCustomOverridesFromState(
+              serverPayload.providerKind,
+              localStored,
+              serverPayload.catalog.ttsProfiles,
+              serverPayload.effective?.audioModel,
+            )
           : undefined;
 
       if (localPatch) {
@@ -216,7 +240,12 @@ export const PodcastProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const activeAiOverrides = useMemo<AiRuntimeOverrides | undefined>(() => {
     const providerKind = aiSettings?.providerKind ?? null;
     if (!providerKind) return undefined;
-    return extractCustomOverridesFromState(providerKind, aiSettings?.stored ?? storage.getAiSettings());
+    return extractCustomOverridesFromState(
+      providerKind,
+      aiSettings?.stored ?? storage.getAiSettings(),
+      aiSettings?.catalog.ttsProfiles,
+      aiSettings?.effective?.audioModel,
+    );
   }, [aiSettings]);
 
   const closePodcastPlayer = useCallback(() => {

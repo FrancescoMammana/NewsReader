@@ -3,15 +3,17 @@ import { AlertCircle, Headphones, Loader2, RefreshCw, WifiOff, X } from 'lucide-
 import type { Story, StoryType } from '../types/tmw';
 import { EMPTY_FEED_BUCKET, useApp } from '../context/AppContext';
 import { useOnlineStatus } from '../hooks/usePWAInstall';
+import { useScrollRestoration } from '../hooks/useScrollRestoration';
 import { StoryTile } from './StoryTile';
 
 interface StoriesFeedProps {
   storyType: StoryType;
+  isVisible?: boolean;
 }
 
 const PULL_THRESHOLD_PX = 44;
 
-export const StoriesFeed: React.FC<StoriesFeedProps> = ({ storyType }) => {
+export const StoriesFeed: React.FC<StoriesFeedProps> = ({ storyType, isVisible = true }) => {
   const {
     preferences,
     accentHex,
@@ -38,6 +40,7 @@ export const StoriesFeed: React.FC<StoriesFeedProps> = ({ storyType }) => {
 
   const bucket = feeds[storyType] ?? EMPTY_FEED_BUCKET;
   const scrollRef = useRef<HTMLDivElement>(null);
+  useScrollRestoration(scrollRef, `feed:${storyType}`, isVisible);
   const touchStartYRef = useRef<number | null>(null);
   const pullDistanceRef = useRef(0);
   const [pullDistance, setPullDistance] = useState(0);
@@ -55,7 +58,7 @@ export const StoriesFeed: React.FC<StoriesFeedProps> = ({ storyType }) => {
 
   const handleScroll = () => {
     const el = scrollRef.current;
-    if (!el) return;
+    if (!el || !isVisible || el.clientHeight === 0) return;
     if (
       !preferences.isManualPaginationEnabled &&
       !bucket.loadingMore &&

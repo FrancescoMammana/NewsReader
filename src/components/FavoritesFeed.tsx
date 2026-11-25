@@ -1,14 +1,21 @@
-import React from 'react';
+import React, { useRef } from 'react';
 import { Trash2 } from 'lucide-react';
 import { type Story } from '../types/tmw';
 import { useApp } from '../context/AppContext';
+import { useScrollRestoration } from '../hooks/useScrollRestoration';
 import { StoryTile } from './StoryTile';
 
-export const FavoritesFeed: React.FC = () => {
+interface FavoritesFeedProps {
+  isVisible?: boolean;
+}
+
+export const FavoritesFeed: React.FC<FavoritesFeedProps> = ({ isVisible = true }) => {
   const { preferences, favItems, removeFav, openItem, selectedItemArgs } = useApp();
+  const scrollRef = useRef<HTMLDivElement>(null);
+  useScrollRestoration(scrollRef, 'favorites', isVisible);
 
   return (
-    <div className="flex-1 overflow-y-auto overscroll-y-contain">
+    <div ref={scrollRef} className="flex-1 overflow-y-auto overscroll-y-contain">
       {favItems.length === 0 ? (
         <div className="py-20 px-6 text-center text-sm text-neutral-400">
           Your favorite TuttoMercatoWeb articles will show up here.

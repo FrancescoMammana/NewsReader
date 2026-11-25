@@ -38,13 +38,21 @@ export const AiSettingsSection: React.FC = () => {
   }, [refreshAiSettings]);
 
   useEffect(() => {
-    if (!effective) return;
-    setTextModel(effective.textModel);
-    setAudioModel(effective.audioModel);
-    setVoice(effective.voice);
-    setBaseUrl(effective.baseUrl ?? '');
-    setAudioFormat(effective.audioFormat ?? '');
-  }, [effective]);
+    if (!aiSettings) return;
+    if (effective) {
+      setTextModel(effective.textModel);
+      setAudioModel(effective.audioModel);
+      setVoice(effective.voice);
+      setBaseUrl(effective.baseUrl ?? aiSettings.stored.openai.baseUrl);
+      setAudioFormat(effective.audioFormat ?? aiSettings.stored.openai.audioFormat);
+    } else {
+      setTextModel(aiSettings.stored.openai.textModel);
+      setAudioModel(aiSettings.stored.openai.audioModel);
+      setVoice(aiSettings.stored.openai.voice);
+      setBaseUrl(aiSettings.stored.openai.baseUrl);
+      setAudioFormat(aiSettings.stored.openai.audioFormat);
+    }
+  }, [aiSettings, effective]);
 
   const selectedTtsProfile = useMemo(
     () => matchProfile(profiles, audioModel),
@@ -74,25 +82,51 @@ export const AiSettingsSection: React.FC = () => {
     }
   };
 
+  const resolvedVoice =
+    selectedTtsProfile &&
+    selectedTtsProfile.voices.length > 0 &&
+    !selectedTtsProfile.voices.includes(voice)
+      ? selectedTtsProfile.voices[0]
+      : voice;
+
+  const resolvedAudioFormat =
+    providerKind === 'openai' &&
+    selectedTtsProfile &&
+    selectedTtsProfile.formats.length > 0 &&
+    !selectedTtsProfile.formats.includes(audioFormat.toLowerCase())
+      ? selectedTtsProfile.formats[0]
+      : audioFormat;
+
+  const savedOpenAiBaseUrl = aiSettings?.stored.openai.baseUrl ?? '';
   const hasChanges = Boolean(
-    effective &&
-      (textModel.trim() !== effective.textModel ||
-        audioModel.trim() !== effective.audioModel ||
-        voice.trim() !== effective.voice ||
-        (providerKind === 'openai' &&
-          (baseUrl.trim() !== (effective.baseUrl ?? '') ||
-            audioFormat.trim().toLowerCase() !== (effective.audioFormat ?? '').toLowerCase()))),
+    aiSettings &&
+      (effective
+        ? textModel.trim() !== effective.textModel ||
+          audioModel.trim() !== effective.audioModel ||
+          resolvedVoice.trim() !== effective.voice ||
+          baseUrl.trim().replace(/\/+$/, '') !==
+            (effective.baseUrl ?? savedOpenAiBaseUrl).trim().replace(/\/+$/, '') ||
+          (providerKind === 'openai' &&
+            resolvedAudioFormat.trim().toLowerCase() !==
+              (effective.audioFormat ?? '').toLowerCase())
+        : baseUrl.trim().replace(/\/+$/, '') !== savedOpenAiBaseUrl.trim().replace(/\/+$/, '')),
   );
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!providerKind || saving) return;
+    if (!aiSettings || saving) return;
     setSaving(true);
     try {
       await saveAiSettings(
         providerKind === 'gemini'
-          ? { textModel, audioModel, voice }
-          : { textModel, audioModel, voice, baseUrl, audioFormat },
+          ? { textModel, audioModel, voice: resolvedVoice, baseUrl }
+          : {
+              textModel,
+              audioModel,
+              voice: resolvedVoice,
+              baseUrl,
+              audioFormat: resolvedAudioFormat,
+            },
       );
       showToast('Impostazioni AI salvate.', { variant: 'success' });
     } catch (err) {
@@ -139,12 +173,36 @@ export const AiSettingsSection: React.FC = () => {
       </div>
 
       {!providerKind || !effective ? (
-        <p className="text-xs text-neutral-500 dark:text-neutral-400 leading-relaxed">
-          Nessuna chiave API AI rilevata sul server. Configura{' '}
-          <code className="font-mono">GEMINI_API_KEY</code> o{' '}
-          <code className="font-mono">OPENAI_API_KEY</code> nelle variabili ambiente del server per
-          abilitare Podcast e Assistente AI.
-        </p>
+        <form onSubmit={handleSave} className="space-y-3">
+          <p className="text-xs text-neutral-500 dark:text-neutral-400 leading-relaxed">
+            Nessuna chiave API AI rilevata sul server. Configura{' '}
+            <code className="font-mono">GEMINI_API_KEY</code> o{' '}
+            <code className="font-mono">OPENAI_API_KEY</code> nelle variabili ambiente del server per
+            abilitare Podcast e Assistente AI.
+          </p>
+          <label className="block text-xs">
+            <span className="text-neutral-500 dark:text-neutral-400">
+              OpenAI Base URL (URL provider)
+            </span>
+            <input
+              type="url"
+              value={baseUrl}
+              onChange={(e) => setBaseUrl(e.target.value)}
+              placeholder={aiSettings.defaults.openai.baseUrl}
+              required
+              className="mt-1 w-full px-2.5 py-1.5 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-transparent text-sm"
+            />
+          </label>
+          <button
+            type="submit"
+            disabled={saving || !hasChanges}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-white disabled:opacity-50 cursor-pointer"
+            style={{ backgroundColor: accentHex }}
+          >
+            <Save className="w-3.5 h-3.5" />
+            <span>{saving ? 'Salvataggio...' : 'Salva URL'}</span>
+          </button>
+        </form>
       ) : (
         <form onSubmit={handleSave} className="space-y-3">
           <p className="text-xs text-neutral-500 dark:text-neutral-400">
@@ -152,19 +210,24 @@ export const AiSettingsSection: React.FC = () => {
             non lasciano mai il server).
           </p>
 
-          {providerKind === 'openai' && (
-            <label className="block text-xs">
-              <span className="text-neutral-500 dark:text-neutral-400">URL provider</span>
-              <input
-                type="url"
-                value={baseUrl}
-                onChange={(e) => setBaseUrl(e.target.value)}
-                placeholder={aiSettings.defaults.openai.baseUrl}
-                required
-                className="mt-1 w-full px-2.5 py-1.5 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-transparent text-sm"
-              />
-            </label>
-          )}
+          <label className="block text-xs">
+            <span className="text-neutral-500 dark:text-neutral-400">
+              OpenAI Base URL (URL provider)
+            </span>
+            <input
+              type="url"
+              value={baseUrl}
+              onChange={(e) => setBaseUrl(e.target.value)}
+              placeholder={aiSettings.defaults.openai.baseUrl}
+              required
+              className="mt-1 w-full px-2.5 py-1.5 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-transparent text-sm"
+            />
+            {providerKind === 'gemini' && (
+              <span className="mt-1 block text-[11px] text-neutral-400 dark:text-neutral-500">
+                Predefinito OpenRouter; usato quando il provider attivo è OpenAI-compatible (ora è attivo Google Gemini).
+              </span>
+            )}
+          </label>
 
           <label className="block text-xs">
             <span className="text-neutral-500 dark:text-neutral-400">Modello testo (Q&amp;A e copione)</span>
@@ -201,11 +264,7 @@ export const AiSettingsSection: React.FC = () => {
               <span className="text-neutral-500 dark:text-neutral-400">Voce</span>
               {selectedTtsProfile && selectedTtsProfile.voices.length > 0 ? (
                 <select
-                  value={
-                    selectedTtsProfile.voices.includes(voice)
-                      ? voice
-                      : selectedTtsProfile.voices[0]
-                  }
+                  value={resolvedVoice}
                   onChange={(e) => setVoice(e.target.value)}
                   className="mt-1 w-full px-2.5 py-1.5 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-transparent text-sm"
                 >
@@ -231,11 +290,7 @@ export const AiSettingsSection: React.FC = () => {
               <label className="block text-xs">
                 <span className="text-neutral-500 dark:text-neutral-400">Formato audio</span>
                 <select
-                  value={
-                    allowedFormats.includes(audioFormat.toLowerCase())
-                      ? audioFormat.toLowerCase()
-                      : allowedFormats[0]
-                  }
+                  value={resolvedAudioFormat.toLowerCase()}
                   onChange={(e) => setAudioFormat(e.target.value)}
                   className="mt-1 w-full px-2.5 py-1.5 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-transparent text-sm"
                 >
@@ -273,6 +328,11 @@ export const AiSettingsSection: React.FC = () => {
 
           <p className="text-[11px] text-neutral-400 dark:text-neutral-500">
             Predefiniti ({providerKind === 'gemini' ? 'Gemini' : 'OpenRouter'}):{' '}
+            {providerKind === 'openai' && (
+              <>
+                <span className="font-mono">{aiSettings.defaults.openai.baseUrl}</span> ·{' '}
+              </>
+            )}
             <span className="font-mono">{defaultPreview.textModel}</span> ·{' '}
             <span className="font-mono">{defaultPreview.audioModel}</span> ·{' '}
             <span className="font-mono">{defaultPreview.voice}</span>

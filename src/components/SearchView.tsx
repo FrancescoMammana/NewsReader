@@ -1,7 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Calendar, Search as SearchIcon, X } from 'lucide-react';
 import { useFeeds, useLibrary, useNavigation, usePreferences } from '../context/AppContext';
 import { useArticleSearch } from '../hooks/useArticleSearch';
+import { useScrollRestoration } from '../hooks/useScrollRestoration';
 import { StoryTile } from './StoryTile';
 
 const PAGE_SIZE = 30;
@@ -12,7 +13,13 @@ const QUICK_RANGES = [
   { label: 'Ultimo mese', days: 30 },
 ];
 
-export const SearchView: React.FC = () => {
+interface SearchViewProps {
+  isVisible?: boolean;
+}
+
+export const SearchView: React.FC<SearchViewProps> = ({ isVisible = true }) => {
+  const scrollRef = useRef<HTMLDivElement>(null);
+  useScrollRestoration(scrollRef, 'search', isVisible);
   const { preferences, accentHex } = usePreferences();
   const { openItem } = useNavigation();
   const { feeds } = useFeeds();
@@ -175,7 +182,7 @@ export const SearchView: React.FC = () => {
       </div>
 
       {/* Results */}
-      <div className="flex-1 overflow-y-auto">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto">
         {loading && visibleResults.length === 0 && (
           <div className="py-16 text-center text-sm text-neutral-500">Ricerca in corso...</div>
         )}

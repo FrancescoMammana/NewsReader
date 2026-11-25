@@ -100,15 +100,15 @@ export const App: React.FC = () => {
       style={{ fontFamily: FONT_STACK[preferences.font] }}
     >
       <div className="flex-1 min-h-0 flex overflow-hidden">
-      {/* Left Pane: Tab Bar + Stories Feed / Profile */}
-      {showLeftPane && (
-        <aside
-          className={`flex flex-col h-full ${
-            isDesktop
-              ? 'w-[400px] lg:w-[440px] shrink-0 border-r border-neutral-200 dark:border-neutral-800'
-              : 'w-full'
-          }`}
-        >
+      {/* Left Pane: Tab Bar + Stories Feed / Profile (kept mounted so mobile preserves scroll & search state) */}
+      <aside
+        aria-hidden={!showLeftPane}
+        className={`${showLeftPane ? 'flex' : 'hidden'} flex-col h-full ${
+          isDesktop
+            ? 'w-[400px] lg:w-[440px] shrink-0 border-r border-neutral-200 dark:border-neutral-800'
+            : 'w-full'
+        }`}
+      >
           {/* Top Navigation Bar with Wrapping Feed Pills */}
           <header className="shrink-0 border-b border-neutral-200 dark:border-neutral-800 bg-white/95 dark:bg-neutral-950/95 backdrop-blur">
             <div className="px-3 py-2 flex flex-col gap-2">
@@ -226,11 +226,12 @@ export const App: React.FC = () => {
               <ProfileView
                 onOpenExportQr={() => setExportQrOpen(true)}
                 onOpenImportModal={() => setImportModalOpen(true)}
+                isVisible={showLeftPane}
               />
             ) : activeTab === 'favorites' ? (
-              <FavoritesFeed />
+              <FavoritesFeed isVisible={showLeftPane} />
             ) : activeTab === 'search' ? (
-              <SearchView />
+              <SearchView isVisible={showLeftPane} />
             ) : preferences.tabOrder.length === 0 ? (
               <div className="flex-1 flex flex-col items-center justify-center p-6 text-center gap-3">
                 <p className="text-sm font-medium text-neutral-700 dark:text-neutral-200">
@@ -260,13 +261,12 @@ export const App: React.FC = () => {
                 </div>
               </div>
             ) : (
-              <StoriesFeed storyType={activeTab} />
+              <StoriesFeed storyType={activeTab} isVisible={showLeftPane} />
             )}
           </div>
 
           <CountdownReminder />
         </aside>
-      )}
 
       {/* Right Pane: Article Reader & Notes */}
       {showRightPane && (

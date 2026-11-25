@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useRef } from 'react';
 import { WifiOff } from 'lucide-react';
 import { useLibrary } from '../context/AppContext';
+import { useScrollRestoration } from '../hooks/useScrollRestoration';
 import { PWAInstallButton } from './PWAInstallButton';
 import { AiSettingsSection } from './settings/AiSettingsSection';
 import { AppearanceSettingsSection } from './settings/AppearanceSettingsSection';
@@ -11,16 +12,20 @@ import { StorageAndAboutSection } from './settings/StorageAndAboutSection';
 interface SettingsViewProps {
   onOpenExportQr: () => void;
   onOpenImportModal: () => void;
+  isVisible?: boolean;
 }
 
 export const SettingsView: React.FC<SettingsViewProps> = ({
   onOpenExportQr,
   onOpenImportModal,
+  isVisible = true,
 }) => {
   const { offlineArticleCount } = useLibrary();
+  const scrollRef = useRef<HTMLDivElement>(null);
+  useScrollRestoration(scrollRef, 'settings', isVisible);
 
   return (
-    <div className="flex-1 overflow-y-auto divide-y divide-neutral-200 dark:divide-neutral-800 pb-12">
+    <div ref={scrollRef} className="flex-1 overflow-y-auto divide-y divide-neutral-200 dark:divide-neutral-800 pb-12">
       {/* PWA & Offline Cache */}
       <div className="py-1">
         <div className="px-4 py-3 flex items-center justify-between gap-3">

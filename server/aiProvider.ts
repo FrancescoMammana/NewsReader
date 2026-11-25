@@ -86,7 +86,7 @@ export function getMissingConfigMessage(
     return 'Servizio Podcast AI incompleto: imposta il modello audio nelle Impostazioni o via AUDIO_MODEL.';
   }
   if (cfg.kind === 'openai' && !cfg.baseUrl) {
-    return 'Configurazione OpenAI-compatible incompleta: imposta l\'URL provider nelle Impostazioni o via OPENAI_BASE_URL.';
+    return 'Configurazione OpenAI-compatible incompleta: imposta l\'URL provider nelle Impostazioni dell\'app.';
   }
   return 'Configurazione AI non valida.';
 }

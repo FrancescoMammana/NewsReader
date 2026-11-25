@@ -353,6 +353,28 @@ export function sanitizeStoredAiSettings(raw: unknown): StoredAiSettings {
     'audioFormat',
   ]);
 
+  const rawOaAudioModel =
+    openaiCustomized.includes('audioModel') && typeof oa.audioModel === 'string' && oa.audioModel.trim()
+      ? oa.audioModel.trim()
+      : defaults.openai.audioModel;
+  const oaTtsProfile = findTtsModelProfile(rawOaAudioModel);
+
+  let oaVoice =
+    openaiCustomized.includes('voice') && typeof oa.voice === 'string' && oa.voice.trim()
+      ? oa.voice.trim()
+      : defaults.openai.voice;
+  if (oaTtsProfile && oaTtsProfile.voices.length > 0 && !oaTtsProfile.voices.includes(oaVoice)) {
+    oaVoice = oaTtsProfile.voices[0];
+  }
+
+  let oaFormat =
+    openaiCustomized.includes('audioFormat') && typeof oa.audioFormat === 'string' && oa.audioFormat.trim()
+      ? oa.audioFormat.trim().toLowerCase()
+      : defaults.openai.audioFormat;
+  if (oaTtsProfile && oaTtsProfile.formats.length > 0 && !oaTtsProfile.formats.includes(oaFormat)) {
+    oaFormat = oaTtsProfile.formats[0];
+  }
+
   return {
     gemini: {
       textModel:
@@ -378,18 +400,9 @@ export function sanitizeStoredAiSettings(raw: unknown): StoredAiSettings {
         openaiCustomized.includes('textModel') && typeof oa.textModel === 'string' && oa.textModel.trim()
           ? oa.textModel.trim()
           : defaults.openai.textModel,
-      audioModel:
-        openaiCustomized.includes('audioModel') && typeof oa.audioModel === 'string' && oa.audioModel.trim()
-          ? oa.audioModel.trim()
-          : defaults.openai.audioModel,
-      voice:
-        openaiCustomized.includes('voice') && typeof oa.voice === 'string' && oa.voice.trim()
-          ? oa.voice.trim()
-          : defaults.openai.voice,
-      audioFormat:
-        openaiCustomized.includes('audioFormat') && typeof oa.audioFormat === 'string' && oa.audioFormat.trim()
-          ? oa.audioFormat.trim().toLowerCase()
-          : defaults.openai.audioFormat,
+      audioModel: rawOaAudioModel,
+      voice: oaVoice,
+      audioFormat: oaFormat,
       customizedFields: openaiCustomized,
     },
   };
@@ -474,23 +487,40 @@ export function resolveEffectiveAiConfig(
 
   const profile = stored.openai;
   const customSet = new Set(profile.customizedFields);
-  const envBaseUrl = env.OPENAI_BASE_URL?.trim() || '';
-
   const baseUrl =
-    overrides?.baseUrl?.trim() ||
-    (customSet.has('baseUrl') ? profile.baseUrl : envBaseUrl || OPENAI_DEFAULTS.baseUrl);
+    overrides?.baseUrl?.trim().replace(/\/+$/, '') ||
+    (customSet.has('baseUrl') ? profile.baseUrl : OPENAI_DEFAULTS.baseUrl);
   const textModel =
     overrides?.textModel?.trim() ||
     (customSet.has('textModel') ? profile.textModel : envTextModel || OPENAI_DEFAULTS.textModel);
   const audioModel =
     overrides?.audioModel?.trim() ||
     (customSet.has('audioModel') ? profile.audioModel : envAudioModel || OPENAI_DEFAULTS.audioModel);
-  const voice =
+  const ttsProfile = findTtsModelProfile(audioModel);
+
+  let voice =
     overrides?.voice?.trim() || (customSet.has('voice') ? profile.voice : OPENAI_DEFAULTS.voice);
-  const audioFormat = (
+  if (
+    !overrides?.voice?.trim() &&
+    ttsProfile &&
+    ttsProfile.voices.length > 0 &&
+    !ttsProfile.voices.includes(voice)
+  ) {
+    voice = ttsProfile.voices[0];
+  }
+
+  let audioFormat = (
     overrides?.audioFormat?.trim() ||
     (customSet.has('audioFormat') ? profile.audioFormat : OPENAI_DEFAULTS.audioFormat)
   ).toLowerCase();
+  if (
+    !overrides?.audioFormat?.trim() &&
+    ttsProfile &&
+    ttsProfile.formats.length > 0 &&
+    !ttsProfile.formats.includes(audioFormat)
+  ) {
+    audioFormat = ttsProfile.formats[0];
+  }
 
   return {
     kind: 'openai',
@@ -517,7 +547,6 @@ export function updateStoredSettingsForActiveProvider(
 ): StoredAiSettings {
   const current = readStoredAiSettings(settingsPath);
   const kind = detectActiveProviderKind(env);
-  if (!kind) return current;
 
   if (kind === 'gemini') {
     const customSet = new Set(current.gemini.customizedFields);
@@ -542,7 +571,21 @@ export function updateStoredSettingsForActiveProvider(
       else customSet.delete('voice');
     }
     nextGemini.customizedFields = Array.from(customSet);
-    return writeStoredAiSettings({ ...current, gemini: nextGemini }, settingsPath);
+
+    const nextOpenAi = { ...current.openai };
+    const oaCustomSet = new Set(current.openai.customizedFields);
+    if (typeof patch.baseUrl === 'string' && patch.baseUrl.trim()) {
+      const val = patch.baseUrl.trim().replace(/\/+$/, '');
+      nextOpenAi.baseUrl = val;
+      if (val !== OPENAI_DEFAULTS.baseUrl) oaCustomSet.add('baseUrl');
+      else oaCustomSet.delete('baseUrl');
+      nextOpenAi.customizedFields = Array.from(oaCustomSet);
+    }
+
+    return writeStoredAiSettings(
+      { ...current, gemini: nextGemini, openai: nextOpenAi },
+      settingsPath,
+    );
   }
 
   const customSet = new Set(current.openai.customizedFields);
@@ -577,6 +620,22 @@ export function updateStoredSettingsForActiveProvider(
     nextOpenAi.audioFormat = val;
     if (val !== OPENAI_DEFAULTS.audioFormat) customSet.add('audioFormat');
     else customSet.delete('audioFormat');
+  }
+  const activeProfile = findTtsModelProfile(nextOpenAi.audioModel);
+  if (activeProfile) {
+    if (activeProfile.voices.length > 0 && !activeProfile.voices.includes(nextOpenAi.voice)) {
+      nextOpenAi.voice = activeProfile.voices[0];
+      if (nextOpenAi.voice !== OPENAI_DEFAULTS.voice) customSet.add('voice');
+      else customSet.delete('voice');
+    }
+    if (
+      activeProfile.formats.length > 0 &&
+      !activeProfile.formats.includes(nextOpenAi.audioFormat.toLowerCase())
+    ) {
+      nextOpenAi.audioFormat = activeProfile.formats[0];
+      if (nextOpenAi.audioFormat !== OPENAI_DEFAULTS.audioFormat) customSet.add('audioFormat');
+      else customSet.delete('audioFormat');
+    }
   }
   nextOpenAi.customizedFields = Array.from(customSet);
   return writeStoredAiSettings({ ...current, openai: nextOpenAi }, settingsPath);

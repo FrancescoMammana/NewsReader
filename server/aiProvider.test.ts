@@ -58,16 +58,17 @@ test('Gemini ha precedenza assoluta e usa i default economici senza TEXT_MODEL/A
   assert.equal(cfg.audioFormat, 'wav');
 });
 
-test('OpenAI-compatible usa default OpenRouter ed economici senza OPENAI_BASE_URL/modelli', () => {
+test('OpenAI-compatible usa default OpenRouter e ignora OPENAI_BASE_URL da env', () => {
   const cfg = resolveAiConfigFromEnv({
     GEMINI_API_KEY: '   ',
     OPENAI_API_KEY: 'or-key',
+    OPENAI_BASE_URL: 'https://should-be-ignored.invalid/v1',
   });
 
   assert.ok(cfg);
   assert.equal(cfg.kind, 'openai');
   assert.equal(cfg.openaiApiKey, 'or-key');
-  assert.equal(cfg.baseUrl, OPENAI_DEFAULTS.baseUrl);
+  assert.equal(cfg.baseUrl, 'https://openrouter.ai/api/v1');
   assert.equal(cfg.textModel, OPENAI_DEFAULTS.textModel);
   assert.equal(cfg.audioModel, OPENAI_DEFAULTS.audioModel);
   assert.equal(cfg.voice, OPENAI_DEFAULTS.voice);
@@ -296,4 +297,24 @@ Grazie.`;
 
   assert.throws(() => parseScriptJson(''), /Risposta non valida/);
   assert.throws(() => parseScriptJson('{"episodeTitle":"solo titolo"}'), /segmenti validi/);
+});
+
+test('resolveEffectiveAiConfig adatta automaticamente voce e formato se audioModel cambia rispetto al default Kokoro', () => {
+  const eff = resolveEffectiveAiConfig({
+    OPENAI_API_KEY: 'or-key',
+    AUDIO_MODEL: 'google/gemini-3.8-flash-lite-tts',
+  });
+  assert.ok(eff);
+  assert.equal(eff.audioModel, 'google/gemini-3.8-flash-lite-tts');
+  assert.equal(eff.voice, 'Kore');
+  assert.equal(eff.audioFormat, 'wav');
+
+  const withModelOverride = resolveEffectiveAiConfig(
+    { OPENAI_API_KEY: 'or-key' },
+    undefined,
+    { audioModel: 'google/gemini-3.8-flash-lite-tts' },
+  );
+  assert.ok(withModelOverride);
+  assert.equal(withModelOverride.voice, 'Kore');
+  assert.equal(withModelOverride.audioFormat, 'wav');
 });
