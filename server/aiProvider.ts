@@ -28,6 +28,7 @@ export interface GenerateTextParams {
   temperature?: number;
   jsonSchema?: Schema;
   thinkingMinimalForGemini3?: boolean;
+  stream?: boolean;
   overrides?: AiRuntimeOverrides;
 }
 
@@ -239,12 +240,18 @@ export async function generateAiText(params: GenerateTextParams): Promise<string
       const initialReasoning: ReasoningMode =
         params.thinkingMinimalForGemini3 && isOpenRouter ? 'none' : 'off';
 
-      const runChat = async (withJsonFormat: boolean, reasoningMode: ReasoningMode): Promise<string> => {
+      const runChat = async (
+        withJsonFormat: boolean,
+        reasoningMode: ReasoningMode,
+        useStream: boolean,
+      ): Promise<string> => {
         const body: Record<string, unknown> = {
           model: cfg.textModel,
           messages,
-          stream: true,
         };
+        if (useStream) {
+          body.stream = true;
+        }
         if (params.maxOutputTokens !== undefined) {
           body.max_tokens = params.maxOutputTokens;
         }
@@ -259,51 +266,64 @@ export async function generateAiText(params: GenerateTextParams): Promise<string
         } else if (reasoningMode === 'minimal') {
           body.reasoning = { effort: 'minimal', exclude: true };
         }
-        const stream = await client.chat.completions.create(
-          body as unknown as OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming,
+        if (useStream) {
+          const stream = await client.chat.completions.create(
+            body as unknown as OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming,
+            { signal: AbortSignal.timeout(TEXT_TIMEOUT_MS) },
+          );
+          let text = '';
+          for await (const chunk of stream) {
+            const delta = chunk.choices?.[0]?.delta?.content;
+            if (typeof delta === 'string') {
+              text += delta;
+            }
+          }
+          return text.trim();
+        }
+        const completion = await client.chat.completions.create(
+          body as unknown as OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming,
           { signal: AbortSignal.timeout(TEXT_TIMEOUT_MS) },
         );
-        let text = '';
-        for await (const chunk of stream) {
-          const delta = chunk.choices?.[0]?.delta?.content;
-          if (typeof delta === 'string') {
-            text += delta;
-          }
-        }
-        return text.trim();
+        return completion.choices?.[0]?.message?.content?.trim() || '';
       };
 
       const executeWithFallback = async (
         withJson: boolean,
         reasoningMode: ReasoningMode,
+        useStream: boolean,
       ): Promise<string> => {
         try {
-          return await runChat(withJson, reasoningMode);
+          return await runChat(withJson, reasoningMode, useStream);
         } catch (err) {
           const apiErr = err as { status?: number };
           if (apiErr?.status === 400 || apiErr?.status === 422) {
             if (withJson) {
-              return executeWithFallback(false, reasoningMode);
+              return executeWithFallback(false, reasoningMode, useStream);
             }
             if (reasoningMode === 'none') {
-              return executeWithFallback(false, 'minimal');
+              return executeWithFallback(false, 'minimal', useStream);
             }
             if (reasoningMode === 'minimal') {
-              return executeWithFallback(false, 'off');
+              return executeWithFallback(false, 'off', useStream);
             }
           }
           throw err;
         }
       };
 
-      let content = await executeWithFallback(Boolean(params.jsonSchema), initialReasoning);
+      const preferStream = Boolean(params.stream);
+      let content = await executeWithFallback(
+        Boolean(params.jsonSchema),
+        initialReasoning,
+        preferStream,
+      );
 
-      // Alcuni provider/modelli restituiscono content vuoto con response_format=json_object o reasoning disabilitato
+      // Alcuni provider/modelli restituiscono content vuoto con response_format=json_object, reasoning disabilitato o stream=true
       if (!content && params.jsonSchema) {
-        content = await executeWithFallback(false, initialReasoning);
+        content = await executeWithFallback(false, initialReasoning, false);
       }
-      if (!content && initialReasoning !== 'off') {
-        content = await executeWithFallback(false, 'off');
+      if (!content && (initialReasoning !== 'off' || preferStream)) {
+        content = await executeWithFallback(false, 'off', false);
       }
 
       return content;

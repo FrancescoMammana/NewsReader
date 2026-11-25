@@ -33,7 +33,7 @@ AUDIO_MODEL=
 - **Provider Priority**: If `GEMINI_API_KEY` is set, the server always uses Google Gemini (`@google/genai`) and ignores `OPENAI_API_KEY`. Otherwise, `OPENAI_API_KEY` enables the OpenAI-compatible SDK (`openai`).
 - **Built-in Economic Defaults**:
   - **Gemini**: `textModel = gemini-3.1-flash-lite`, `audioModel = gemini-3.8-flash-lite-tts`, `voice = Kore`, format `wav`.
-  - **OpenAI-compatible / OpenRouter**: `baseUrl = https://openrouter.ai/api/v1` (configurable in Settings), `textModel = mistralai/mistral-nemo`, `audioModel = hexgrad/kokoro-82m`, `voice = if_sara`, `audioFormat = mp3`.
+  - **OpenAI-compatible / OpenRouter**: `baseUrl = https://openrouter.ai/api/v1` (configurable in Settings), `textModel = google/gemma-4-26b-a4b-it:free`, `audioModel = hexgrad/kokoro-82m`, `voice = if_sara`, `audioFormat = mp3`.
 - **In-App Settings & Hybrid Persistence**: Non-secret model, voice, URL, and format settings are stored per active provider on disk (`data/ai-settings.json`, or `AI_SETTINGS_PATH`) and synced with browser `localStorage` (`tmw_ai_settings_v1`) so custom selections survive server redeploys. Use **Ripristina valori predefiniti** inside Settings to reset only the active provider.
 - **Local / VPS**: Copy `.env.example` to `.env`, set either `GEMINI_API_KEY` or `OPENAI_API_KEY`, and restart the server.
 - **Render**: Open your Web Service -> **Environment -> Environment Variables**, add `GEMINI_API_KEY` or `OPENAI_API_KEY`, and save/redeploy.
@@ -81,7 +81,7 @@ AUDIO_MODEL=
 - **Precedenza dei Provider**: Se `GEMINI_API_KEY` è valorizzata, il server usa esclusivamente Google Gemini (`@google/genai`) ignorando `OPENAI_API_KEY`. Se assente, `OPENAI_API_KEY` attiva il provider OpenAI-compatible tramite SDK ufficiale `openai`.
 - **Valori Predefiniti Economici Integrati**:
   - **Gemini**: `textModel = gemini-3.1-flash-lite`, `audioModel = gemini-3.8-flash-lite-tts`, `voice = Kore`, formato `wav`.
-  - **OpenAI-compatible / OpenRouter**: `baseUrl = https://openrouter.ai/api/v1` (configurabile nelle Impostazioni), `textModel = mistralai/mistral-nemo`, `audioModel = hexgrad/kokoro-82m`, `voice = if_sara`, formato `mp3`.
+  - **OpenAI-compatible / OpenRouter**: `baseUrl = https://openrouter.ai/api/v1` (configurabile nelle Impostazioni), `textModel = google/gemma-4-26b-a4b-it:free`, `audioModel = hexgrad/kokoro-82m`, `voice = if_sara`, formato `mp3`.
 - **Impostazioni in App e Persistenza Ibrida**: I parametri non segreti (modelli, voce, URL e formato) sono salvati per singolo provider su file server (`data/ai-settings.json` o `AI_SETTINGS_PATH`) e sincronizzati con il browser (`tmw_ai_settings_v1`) per sopravvivere ai redeploy (es. Render). Il pulsante **Ripristina valori predefiniti** ripristina solo il provider attualmente attivo.
 - **Locale / VPS**: Copia `.env.example` in `.env`, imposta `GEMINI_API_KEY` oppure `OPENAI_API_KEY` e avvia il server.
 - **Render**: Apri il Web Service su Render -> **Environment -> Environment Variables**, aggiungi `GEMINI_API_KEY` oppure `OPENAI_API_KEY` e salva/riavvia.

@@ -74,7 +74,7 @@ export const GEMINI_DEFAULTS: Omit<GeminiProfileSettings, 'customizedFields'> = 
 
 export const OPENAI_DEFAULTS: Omit<OpenAiProfileSettings, 'customizedFields'> = {
   baseUrl: 'https://openrouter.ai/api/v1',
-  textModel: 'mistralai/mistral-nemo',
+  textModel: 'google/gemma-4-26b-a4b-it:free',
   audioModel: 'hexgrad/kokoro-82m',
   voice: 'if_sara',
   audioFormat: 'mp3',
@@ -199,9 +199,9 @@ export const KNOWN_TTS_PROFILES: TtsModelProfile[] = [
 export const TEXT_MODEL_SUGGESTIONS: Record<ActiveProviderKind, string[]> = {
   gemini: ['gemini-3.1-flash-lite', 'gemini-4-hydrogen'],
   openai: [
+    'google/gemma-4-26b-a4b-it:free',
+    'nvidia/nemotron-3.5-lightning:free',
     'mistralai/mistral-nemo',
-    'openai/gpt-oss-20b',
-    'google/gemini-2.5-flash-lite',
     'openai/gpt-4o-mini',
     'gpt-4o-mini',
   ],

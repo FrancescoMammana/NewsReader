@@ -79,9 +79,9 @@ export const ArticleAiAssistant: React.FC<ArticleAiAssistantProps> = ({ article 
           aiConfig: activeAiOverrides,
         }),
       });
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || 'Errore nella generazione della risposta.');
+      const data = (await res.json().catch(() => null)) as { answer?: string; error?: string } | null;
+      if (!res.ok || !data?.answer) {
+        throw new Error(data?.error || `Errore HTTP ${res.status} nella generazione della risposta.`);
       }
       setMessages([...newMessages, { role: 'assistant', content: data.answer }]);
     } catch (err: unknown) {

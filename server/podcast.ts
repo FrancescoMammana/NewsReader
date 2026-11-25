@@ -285,6 +285,7 @@ async function generateScript(
     maxOutputTokens: 2400,
     jsonSchema: scriptResponseSchema,
     thinkingMinimalForGemini3: true,
+    stream: true,
     overrides,
   });
 
