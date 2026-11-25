@@ -227,7 +227,9 @@ test('Timeout, abort e 4xx non vengono ritentati mentre 503/429 restano ritentab
 
   assert.equal(isNonRetriableError(new AiProviderError(400, 'Bad format')), true);
   assert.equal(isNonRetriableError(new AiProviderError(401, 'Unauthorized')), true);
+  assert.equal(isNonRetriableError(new AiProviderError(402, 'Insufficient credits')), true);
   assert.equal(isNonRetriableError(new AiProviderError(403, 'Forbidden')), true);
+  assert.equal(isNonRetriableError({ status: 402, message: 'exceed credits' }), true);
   assert.equal(isNonRetriableError(new AiProviderError(504, 'Timeout', 'timeout')), true);
 
   assert.equal(isNonRetriableError({ status: 503, message: 'high demand' }), false);

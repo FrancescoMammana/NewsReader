@@ -157,6 +157,7 @@ export function isNonRetriableError(error: unknown): boolean {
     return (
       error.statusCode === 400 ||
       error.statusCode === 401 ||
+      error.statusCode === 402 ||
       error.statusCode === 403 ||
       error.statusCode === 404 ||
       error.statusCode === 408 ||
@@ -170,6 +171,7 @@ export function isNonRetriableError(error: unknown): boolean {
   return (
     status === 400 ||
     status === 401 ||
+    status === 402 ||
     status === 403 ||
     status === 404 ||
     status === 408 ||
@@ -719,7 +721,8 @@ export async function synthesizeAiSpeechBuffer(
   const results: Array<{ buffer: Buffer; mimeType: string } | undefined> = new Array(chunks.length);
   let nextIndex = 0;
 
-  const workerCount = Math.min(TTS_CONCURRENCY, chunks.length);
+  const workerCount =
+    cfg.kind === 'openai' ? 1 : Math.min(TTS_CONCURRENCY, chunks.length);
   await Promise.all(
     Array.from({ length: workerCount }, async () => {
       while (nextIndex < chunks.length) {
@@ -783,21 +786,24 @@ export function toAiHttpError(
   const code =
     status === 429 || raw.includes('RESOURCE_EXHAUSTED')
       ? 429
-      : status === 401
-        ? isGemini
-          ? 403
-          : 401
-        : status === 403 || raw.includes('API_KEY_INVALID') || raw.includes('PERMISSION_DENIED')
-          ? 403
-          : status === 503 || raw.includes('UNAVAILABLE') || raw.includes('high demand')
-            ? 503
-            : status === 400 || status === 422
-              ? 400
-              : 502;
+      : status === 402
+        ? 402
+        : status === 401
+          ? isGemini
+            ? 403
+            : 401
+          : status === 403 || raw.includes('API_KEY_INVALID') || raw.includes('PERMISSION_DENIED')
+            ? 403
+            : status === 503 || raw.includes('UNAVAILABLE') || raw.includes('high demand')
+              ? 503
+              : status === 400 || status === 422
+                ? 400
+                : 502;
 
   const messages: Record<number, string> = {
     400: 'Richiesta AI non valida (400). Verifica modello, voce o formato audio configurati',
     401: 'Chiave OPENAI_API_KEY non valida o non autorizzata dal provider (401)',
+    402: 'Credito OpenRouter insufficiente o limite richieste simultanee superato (402). OpenRouter non offre modelli TTS gratuiti: ricarica il credito o scegli un modello più economico come hexgrad/kokoro-82m',
     403: isGemini
       ? 'Chiave GEMINI_API_KEY non valida o bloccata per chiamate da server esterno (403).'
       : 'Accesso negato dal provider OpenAI-compatible (403)',
