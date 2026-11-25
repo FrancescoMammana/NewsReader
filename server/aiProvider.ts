@@ -36,7 +36,7 @@ export interface SynthesizedSpeechResult {
   mimeType: string;
 }
 
-const TEXT_TIMEOUT_MS = 90000;
+const TEXT_TIMEOUT_MS = 120000;
 const TTS_TIMEOUT_MS = 65000;
 const TTS_CONCURRENCY = 2;
 const PCM_WAV_MAX_CHUNK_CHARS = 750;
@@ -235,12 +235,15 @@ export async function generateAiText(params: GenerateTextParams): Promise<string
         { role: 'user', content: params.prompt },
       ];
       const isOpenRouter = cfg.baseUrl.toLowerCase().includes('openrouter.ai');
-      const preferNoReasoning = Boolean(params.thinkingMinimalForGemini3 && isOpenRouter);
+      type ReasoningMode = 'none' | 'minimal' | 'off';
+      const initialReasoning: ReasoningMode =
+        params.thinkingMinimalForGemini3 && isOpenRouter ? 'none' : 'off';
 
-      const runChat = (withJsonFormat: boolean, disableReasoning: boolean) => {
+      const runChat = async (withJsonFormat: boolean, reasoningMode: ReasoningMode): Promise<string> => {
         const body: Record<string, unknown> = {
           model: cfg.textModel,
           messages,
+          stream: true,
         };
         if (params.maxOutputTokens !== undefined) {
           body.max_tokens = params.maxOutputTokens;
@@ -251,42 +254,56 @@ export async function generateAiText(params: GenerateTextParams): Promise<string
         if (withJsonFormat) {
           body.response_format = { type: 'json_object' };
         }
-        if (disableReasoning) {
-          body.reasoning = { enabled: false, exclude: true };
+        if (reasoningMode === 'none') {
+          body.reasoning = { effort: 'none', exclude: true };
+        } else if (reasoningMode === 'minimal') {
+          body.reasoning = { effort: 'minimal', exclude: true };
         }
-        return client.chat.completions.create(
-          body as unknown as OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming,
+        const stream = await client.chat.completions.create(
+          body as unknown as OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming,
           { signal: AbortSignal.timeout(TEXT_TIMEOUT_MS) },
         );
+        let text = '';
+        for await (const chunk of stream) {
+          const delta = chunk.choices?.[0]?.delta?.content;
+          if (typeof delta === 'string') {
+            text += delta;
+          }
+        }
+        return text.trim();
       };
 
       const executeWithFallback = async (
         withJson: boolean,
-        disableReasoning: boolean,
-      ): Promise<OpenAI.Chat.Completions.ChatCompletion> => {
+        reasoningMode: ReasoningMode,
+      ): Promise<string> => {
         try {
-          return await runChat(withJson, disableReasoning);
+          return await runChat(withJson, reasoningMode);
         } catch (err) {
           const apiErr = err as { status?: number };
           if (apiErr?.status === 400 || apiErr?.status === 422) {
-            if (disableReasoning) {
-              return executeWithFallback(withJson, false);
-            }
             if (withJson) {
-              return executeWithFallback(false, false);
+              return executeWithFallback(false, reasoningMode);
+            }
+            if (reasoningMode === 'none') {
+              return executeWithFallback(false, 'minimal');
+            }
+            if (reasoningMode === 'minimal') {
+              return executeWithFallback(false, 'off');
             }
           }
           throw err;
         }
       };
 
-      let completion = await executeWithFallback(Boolean(params.jsonSchema), preferNoReasoning);
-      let content = completion.choices?.[0]?.message?.content?.trim() || '';
+      let content = await executeWithFallback(Boolean(params.jsonSchema), initialReasoning);
 
       // Alcuni provider/modelli restituiscono content vuoto con response_format=json_object o reasoning disabilitato
-      if (!content && (params.jsonSchema || preferNoReasoning)) {
-        completion = await executeWithFallback(false, false);
-        content = completion.choices?.[0]?.message?.content?.trim() || '';
+      if (!content && params.jsonSchema) {
+        content = await executeWithFallback(false, initialReasoning);
+      }
+      if (!content && initialReasoning !== 'off') {
+        content = await executeWithFallback(false, 'off');
       }
 
       return content;
@@ -294,7 +311,7 @@ export async function generateAiText(params: GenerateTextParams): Promise<string
       if (isTimeoutOrAbortError(err)) {
         throw new AiProviderError(
           504,
-          'Il modello testo AI non ha risposto entro 90s. Riprova o scegli un modello testo più rapido.',
+          'Il modello testo AI non ha risposto entro 120s. I modelli ":free" molto grandi (es. Nemotron 550B) possono avere code lente: riprova o prova un modello più rapido (es. google/gemma-4-26b-a4b-it:free).',
           'timeout testo',
         );
       }

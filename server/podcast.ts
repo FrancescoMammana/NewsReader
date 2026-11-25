@@ -61,7 +61,7 @@ function cleanText(raw: string): string {
 export function preparePodcastArticles(rawArticles: unknown): PreparedPodcastArticle[] {
   const articles = Array.isArray(rawArticles) ? (rawArticles as PodcastInputArticle[]) : [];
   return articles
-    .slice(0, 10)
+    .slice(0, 8)
     .map((article, index) => {
       const id =
         typeof article?.id === 'number' && Number.isFinite(article.id) ? article.id : index + 1;
@@ -70,7 +70,7 @@ export function preparePodcastArticles(rawArticles: unknown): PreparedPodcastArt
       const category = typeof article?.category === 'string' ? cleanText(article.category) : '';
       const subtitle = typeof article?.subtitle === 'string' ? cleanText(article.subtitle) : '';
       const text = typeof article?.text === 'string' ? cleanText(article.text) : '';
-      return { id, title, by, category, bodySnippet: (text || subtitle).slice(0, 600) };
+      return { id, title, by, category, bodySnippet: (text || subtitle).slice(0, 350) };
     })
     .filter((article) => article.title.length > 0);
 }
@@ -171,6 +171,7 @@ async function generateScript(
   const rawText = await generateAiText({
     systemInstruction: SCRIPT_SYSTEM_INSTRUCTION,
     prompt,
+    maxOutputTokens: 1400,
     jsonSchema: scriptResponseSchema,
     thinkingMinimalForGemini3: true,
     overrides,

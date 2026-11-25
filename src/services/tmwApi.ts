@@ -163,7 +163,7 @@ export async function generatePodcastScriptApi(
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ feedLabel, articles, aiConfig }),
-    timeoutMs: 105000,
+    timeoutMs: 135000,
     fallbackError: 'Impossibile generare il copione del podcast AI.',
   });
   if (!data.episodeTitle || !data.script) {
