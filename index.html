@@ -17,12 +17,79 @@
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-    <meta name="apple-mobile-web-app-title" content="TMW Reader" />
+    <meta name="apple-mobile-web-app-title" content="NewsReader" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <link rel="icon" type="image/png" href="/pwa-192x192.png" />
+    <script>
+      (function () {
+        try {
+          var map = {
+            deepOrange: 'FF5722',
+            orange: 'FF9800',
+            amber: 'F59E0B',
+            red: 'EF4444',
+            pink: 'EC4899',
+            purple: '8B5CF6',
+            indigo: '6366F1',
+            blue: '3B82F6',
+            teal: '14B8A6',
+            green: '22C55E'
+          };
+          var raw = localStorage.getItem('tmw_prefs_v1');
+          var prefs = raw ? JSON.parse(raw) : {};
+          var hex = map[prefs.appColorId] || 'FF5722';
+          var sysDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+          var isDark = prefs.themeMode === 'dark' || (prefs.themeMode === 'system' && sysDark);
+          var root = document.documentElement;
+          root.style.setProperty('--tmw-accent', '#' + hex);
+          root.style.setProperty('--tmw-accent-soft', '#' + hex + '24');
+          root.style.colorScheme = isDark ? 'dark' : 'light';
+          if (isDark) {
+            root.classList.add('dark');
+            root.style.backgroundColor = prefs.isTrueDarkModeEnabled === false ? '#0a0a0a' : '#000000';
+            root.style.color = '#f5f5f5';
+          } else {
+            root.classList.remove('dark');
+            root.style.backgroundColor = '#ffffff';
+            root.style.color = '#171717';
+          }
+          var meta = document.querySelector('meta[name="theme-color"]');
+          if (meta) meta.setAttribute('content', '#' + hex);
+          var statusMeta = document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]');
+          if (statusMeta) statusMeta.setAttribute('content', isDark ? 'black-translucent' : 'default');
+          var icon = document.querySelector('link[rel="icon"]');
+          if (icon) icon.setAttribute('href', '/api/pwa/icon.png?color=' + hex + '&size=192');
+          var apple = document.querySelector('link[rel="apple-touch-icon"]');
+          if (apple) apple.setAttribute('href', '/api/pwa/icon.png?color=' + hex + '&size=180');
+          var syncManifest = function () {
+            var m = document.querySelector('link[rel="manifest"]');
+            if (m) {
+              m.setAttribute('href', '/api/pwa/manifest.webmanifest?color=' + hex + '&dark=' + (isDark ? '1' : '0'));
+            }
+          };
+          syncManifest();
+          document.addEventListener('DOMContentLoaded', syncManifest, { once: true });
+        } catch (e) {}
+      })();
+    </script>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <div
+        style="height:100%;width:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;"
+      >
+        <svg viewBox="0 0 512 512" width="72" height="72" aria-label="NewsReader Logo" style="border-radius:16px;">
+          <rect width="512" height="512" rx="114" fill="var(--tmw-accent, #FF5722)" />
+          <path
+            fill="#ffffff"
+            d="M 120 96 L 200 96 L 312 336 L 312 96 L 392 96 L 392 416 L 312 416 L 200 176 L 200 416 L 120 416 Z"
+          />
+        </svg>
+        <span style="font-family:system-ui,-apple-system,sans-serif;font-size:14px;font-weight:600;letter-spacing:0.025em;opacity:0.9;">
+          NewsReader
+        </span>
+      </div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

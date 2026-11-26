@@ -17,6 +17,7 @@ import { OfflineIndicator, PWAInstallButton } from './components/PWAInstallButto
 import { PodcastPlayer } from './components/PodcastPlayer';
 import { StoriesFeed } from './components/StoriesFeed';
 import { LogoIcon } from './components/LogoIcon';
+import { SplashScreen } from './components/SplashScreen';
 
 const FONT_STACK: Record<FontOption, string> = {
   RobotoSlab: '"RobotoSlab", Georgia, serif',
@@ -99,6 +100,7 @@ export const App: React.FC = () => {
       className={`h-screen w-screen overflow-hidden flex flex-col ${surfaceClass}`}
       style={{ fontFamily: FONT_STACK[preferences.font] }}
     >
+      <SplashScreen />
       <div className="flex-1 min-h-0 flex overflow-hidden">
       {/* Left Pane: Tab Bar + Stories Feed / Profile (kept mounted so mobile preserves scroll & search state) */}
       <aside

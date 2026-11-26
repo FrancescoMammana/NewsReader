@@ -6,6 +6,7 @@ import { tmwRouter } from './server/tmw.ts';
 import { rssRouter } from './server/rss.ts';
 import { linkPreviewRouter } from './server/linkPreview.ts';
 import { aiQuestionRouter } from './server/aiQuestion.ts';
+import { pwaThemeRouter } from './server/pwaTheme.ts';
 import { getMissingConfigMessage, type AiRuntimeOverrides } from './server/aiProvider.ts';
 import {
   getPublicAiSettingsPayload,
@@ -63,6 +64,7 @@ app.use(tmwRouter);
 app.use(rssRouter);
 app.use(linkPreviewRouter);
 app.use(aiQuestionRouter);
+app.use(pwaThemeRouter);
 
 function extractSafeAiOverrides(raw: unknown): AiRuntimeOverrides | undefined {
   if (!raw || typeof raw !== 'object') return undefined;

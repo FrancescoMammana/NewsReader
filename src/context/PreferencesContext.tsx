@@ -44,12 +44,44 @@ export const PreferencesProvider: React.FC<{ children: React.ReactNode }> = ({ c
     const root = document.documentElement;
     if (isDarkActive) {
       root.classList.add('dark');
+      root.style.backgroundColor = preferences.isTrueDarkModeEnabled ? '#000000' : '#0a0a0a';
     } else {
       root.classList.remove('dark');
+      root.style.backgroundColor = '#ffffff';
     }
     root.style.setProperty('--tmw-accent', accentHex);
     root.style.setProperty('--tmw-accent-soft', `${accentHex}24`);
-  }, [isDarkActive, accentHex]);
+
+    const cleanHex = accentHex.replace(/^#/, '').toUpperCase();
+    const themeMeta = document.querySelector('meta[name="theme-color"]');
+    if (themeMeta) {
+      themeMeta.setAttribute('content', `#${cleanHex}`);
+    }
+    const statusMeta = document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]');
+    if (statusMeta) {
+      statusMeta.setAttribute('content', isDarkActive ? 'black-translucent' : 'default');
+    }
+
+    const iconLink = document.querySelector('link[rel="icon"]');
+    if (iconLink) {
+      iconLink.setAttribute('href', `/api/pwa/icon.png?color=${cleanHex}&size=192`);
+    }
+    const appleIcon = document.querySelector('link[rel="apple-touch-icon"]');
+    if (appleIcon) {
+      appleIcon.setAttribute('href', `/api/pwa/icon.png?color=${cleanHex}&size=180`);
+    }
+
+    let manifestLink = document.querySelector('link[rel="manifest"]');
+    if (!manifestLink) {
+      manifestLink = document.createElement('link');
+      manifestLink.setAttribute('rel', 'manifest');
+      document.head.appendChild(manifestLink);
+    }
+    manifestLink.setAttribute(
+      'href',
+      `/api/pwa/manifest.webmanifest?color=${cleanHex}&dark=${isDarkActive ? '1' : '0'}`,
+    );
+  }, [isDarkActive, accentHex, preferences.isTrueDarkModeEnabled]);
 
   const updatePreference = useCallback(<K extends keyof Preferences>(key: K, value: Preferences[K]) => {
     setPreferences((prev) => {
